@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: spread-backend
+    working_dir: /app
+    volumes:
+      - ./backend/app:/app/app:rw
+      - ./backend/scripts:/app/scripts:rw
+      - ./data:/app/data:rw
+    environment:
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "127.0.0.1:3115:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        - NEXT_PUBLIC_BASE_PATH=/spread-finder
+        - NEXT_PUBLIC_API_PROXY_DEST=http://backend:8000
+    container_name: spread-frontend
+    depends_on:
+      - backend
+    environment:
+      - NEXT_PUBLIC_BASE_PATH=/spread-finder
+      - NEXT_PUBLIC_API_PROXY_DEST=http://backend:8000
+    ports:
+      - "127.0.0.1:3116:3000"
+
+networks:
+  default:
+    name: spread-net
