@@ -5,10 +5,8 @@ services:
     build:
       context: ./backend
     container_name: spread-backend
-    working_dir: /app
+    restart: unless-stopped
     volumes:
-      - ./backend/app:/app/app:rw
-      - ./backend/scripts:/app/scripts:rw
       - ./data:/app/data:rw
     environment:
       - PYTHONUNBUFFERED=1
@@ -19,6 +17,11 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
 
   frontend:
     build:
@@ -27,13 +30,22 @@ services:
         - NEXT_PUBLIC_BASE_PATH=/spread-finder
         - NEXT_PUBLIC_API_PROXY_DEST=http://backend:8000
     container_name: spread-frontend
+    restart: unless-stopped
     depends_on:
-      - backend
-    environment:
-      - NEXT_PUBLIC_BASE_PATH=/spread-finder
-      - NEXT_PUBLIC_API_PROXY_DEST=http://backend:8000
+      backend:
+        condition: service_healthy
     ports:
       - "127.0.0.1:3116:3000"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/spread-finder"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
 networks:
   default:

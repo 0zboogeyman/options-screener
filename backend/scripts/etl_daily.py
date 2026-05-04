@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 
-DATA_ROOT = Path("data/parquet")
+DATA_ROOT = Path(__file__).parent.parent / "data" / "parquet"
 
 
 DERIBIT = "https://www.deribit.com/api/v2"

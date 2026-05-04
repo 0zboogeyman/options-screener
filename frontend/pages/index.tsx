@@ -13,8 +13,7 @@ import CSPScanner from '../components/CSPScanner';
 import CCScanner from '../components/CCScanner';
 import { useToast } from '../components/Toast';
 
-const isDev = process.env.NODE_ENV === 'development';
-const API_BASE = isDev ? '/api' : '/option-strategy-finder/api';
+const API_BASE = '/api';
 
 function formatNumber(num: number, decimals: number = 2): string {
   return num.toLocaleString('en-US', {

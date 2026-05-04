@@ -1,7 +1,6 @@
 import { useState } from 'react';
 
-const isDev = process.env.NODE_ENV === 'development';
-const API_BASE = isDev ? '/api' : '/option-strategy-finder/api';
+const API_BASE = '/api';
 
 interface CSPCandidate {
   symbol: string;

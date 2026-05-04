@@ -15,7 +15,7 @@ def get_dates():
 
 @router.get("/expiries")
 def get_expiries(
-    base: str = Query(..., regex="^(BTC|ETH)$"),
+    base: str = Query(..., pattern="^(BTC|ETH)$"),
     date: str = Query(..., description="YYYY-MM-DD"),
 ):
     try:
@@ -27,7 +27,7 @@ def get_expiries(
 
 @router.get("/meta/asof")
 def get_asof(
-    base: str = Query(..., regex="^(BTC|ETH)$"),
+    base: str = Query(..., pattern="^(BTC|ETH)$"),
     date: str = Query(..., description="YYYY-MM-DD"),
 ):
     try:

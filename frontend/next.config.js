@@ -1,6 +1,7 @@
 /** @type {import("next").NextConfig} */
 const isDev = process.env.NODE_ENV === "development";
-const basePath = isDev ? "" : (process.env.NEXT_PUBLIC_BASE_PATH || "/option-strategy-finder");
+const basePath = isDev ? "" : (process.env.NEXT_PUBLIC_BASE_PATH || "/spread-finder");
+const apiProxyDest = process.env.NEXT_PUBLIC_API_PROXY_DEST || "http://localhost:8000";
 
 const nextConfig = {
   output: "standalone",
@@ -10,11 +11,11 @@ const nextConfig = {
     return [
       {
         source: "/api/:path*",
-        destination: "http://localhost:8000/api/:path*",
+        destination: `${apiProxyDest}/api/:path*`,
       },
       {
         source: "/option-strategy-finder/api/:path*",
-        destination: "http://localhost:8000/option-strategy-finder/api/:path*",
+        destination: `${apiProxyDest}/option-strategy-finder/api/:path*`,
       },
     ];
   },
