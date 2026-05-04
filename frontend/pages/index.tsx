@@ -1,13 +1,6 @@
 import { useEffect, useState } from 'react';
 
-type DatesResp = { dates: string[] };
-type ExpiriesResp = { date: string; base: string; expiries: number[] };
-type ScanLeg = {
-  K1: number; K2: number; premium: number; max_profit: number; max_loss: number; odds: number; pop?: number | null; quality?: string | null;
-}
-type Bucket = { leg_type: 'CALL'|'PUT'; side: 'DEBIT'|'CREDIT'; top: ScanLeg[]; bottom: ScanLeg[] };
-type ScanResp = { asof_date: string; asof_ts: number; base: string; spot_price: number | null; dvol_index?: number | null; tenor: string; buckets: Bucket[] };
-
+import type { DatesResp, ExpiriesResp, ScanResp, Bucket, ScanLeg, OpinionResult } from '../types/api';
 import ResultBucket from '../components/ResultBucket';
 import CSPScanner from '../components/CSPScanner';
 import CCScanner from '../components/CCScanner';
@@ -22,7 +15,7 @@ function formatNumber(num: number, decimals: number = 2): string {
   });
 }
 
-function OpinionResultDisplay({ result, spotPrice }: { result: any; spotPrice: number }) {
+function OpinionResultDisplay({ result, spotPrice }: { result: OpinionResult; spotPrice: number }) {
   const items = result.items || [];
   const view = result.view;
   const side = result.side;
@@ -154,7 +147,7 @@ export default function Home() {
   const [opinionHorizon, setOpinionHorizon] = useState<'short'|'mid'|'long'>('mid');
   const [opinionView, setOpinionView] = useState<'up'|'down'|'not_up'|'not_down'>('up');
   const [opinionTarget, setOpinionTarget] = useState<string>('150');
-  const [opinionResult, setOpinionResult] = useState<any>(null);
+  const [opinionResult, setOpinionResult] = useState<OpinionResult | null>(null);
 
   useEffect(() => {
     setOpinionTarget(base === 'BTC' ? '150' : '45');
@@ -294,7 +287,7 @@ export default function Home() {
       });
 
       if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
-      const data = await resp.json();
+      const data: OpinionResult = await resp.json();
       setOpinionResult(data);
       setGlobalData({
         asof_ts: data.asof_ts,

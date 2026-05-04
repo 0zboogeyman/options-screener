@@ -1,17 +1,18 @@
-"""
-单腿策略 API 路由：CSP 和 CC
-"""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from ..services.loader import load_chain_for, get_latest_date
 from ..services.single_leg import scan_csp, scan_cc
 
 
+limiter = Limiter(key_func=get_remote_address)
+
+
 class CSPRequest(BaseModel):
-    """CSP（现金备兑接货）请求参数"""
     base: str = Field(..., pattern=r"^(BTC|ETH)$")
     max_dte: int = Field(default=60, ge=1, le=180, description="最大到期天数")
     max_delta: float = Field(default=0.30, ge=0.01, le=0.99, description="最大Delta绝对值")
@@ -22,7 +23,6 @@ class CSPRequest(BaseModel):
 
 
 class CCRequest(BaseModel):
-    """CC（现货备兑抛货）请求参数"""
     base: str = Field(..., pattern=r"^(BTC|ETH)$")
     max_dte: int = Field(default=60, ge=1, le=180, description="最大到期天数")
     max_delta: float = Field(default=0.30, ge=0.01, le=0.99, description="最大Delta绝对值")
@@ -36,15 +36,8 @@ router = APIRouter()
 
 
 @router.post("/strategy/csp")
-def scan_csp_strategy(req: CSPRequest):
-    """
-    扫描 CSP（Cash Secured Put）策略
-
-    策略说明：
-    - 卖出看跌期权，目标以折扣价接货或赚取权利金
-    - 需要现金保证金支持
-    - 适合看涨或中性市场
-    """
+@limiter.limit("20/minute")
+def scan_csp_strategy(request: Request, req: CSPRequest):
     try:
         latest_date = get_latest_date()
         chain, meta = load_chain_for(date=latest_date, base=req.base)
@@ -65,15 +58,8 @@ def scan_csp_strategy(req: CSPRequest):
 
 
 @router.post("/strategy/cc")
-def scan_cc_strategy(req: CCRequest):
-    """
-    扫描 CC（Covered Call）策略
-
-    策略说明：
-    - 在持有现货基础上卖出看涨期权
-    - 获取额外权利金收益
-    - 适合震荡或温和上涨市场
-    """
+@limiter.limit("20/minute")
+def scan_cc_strategy(request: Request, req: CCRequest):
     try:
         latest_date = get_latest_date()
         chain, meta = load_chain_for(date=latest_date, base=req.base)

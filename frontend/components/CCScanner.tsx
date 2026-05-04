@@ -1,33 +1,8 @@
 import { useState } from 'react';
 
+import type { CCResult } from '../types/api';
+
 const API_BASE = '/api';
-
-interface CCCandidate {
-  symbol: string;
-  expiry_date: string;
-  strike: number;
-  delta: number;
-  premium: number;
-  upside_pct: number;
-  apr_notional: number;
-  assign_prob: number;
-  oi: number;
-  spread_bps: number;
-  dte: number;
-  score: number;
-  quality: string;
-}
-
-interface CCResult {
-  asof_date: string;
-  asof_ts: number;
-  base: string;
-  spot_price: number;
-  dvol_index?: number;
-  strategy: string;
-  filters: any;
-  candidates: CCCandidate[];
-}
 
 function formatNumber(num: number, decimals: number = 2): string {
   return num.toLocaleString('en-US', {
@@ -74,7 +49,7 @@ export default function CCScanner({ onDataUpdate }: CCScannerProps) {
       });
 
       if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
-      const data = await resp.json();
+      const data: CCResult = await resp.json();
       setResult(data);
 
       if (onDataUpdate && data.asof_ts) {

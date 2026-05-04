@@ -1,11 +1,66 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")"/.. && pwd)"
-cd "$ROOT_DIR"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-DATE_UTC=$(date -u +%F)
-echo "[ETL] docker-compose exec backend for ${DATE_UTC} (UTC)"
-docker compose exec -T backend python /app/scripts/etl_daily.py --date "$DATE_UTC"
-echo "[ETL] done."
+DATA_DIR="$PROJECT_DIR/data"
+BACKUP_DIR="$PROJECT_DIR/backups"
+RETENTION_DAYS=7
 
+usage() {
+    echo "Usage: $0 {run|backup|restore <file>|list}"
+    exit 1
+}
+
+do_etl() {
+    echo "Running ETL inside spread-backend container..."
+    if docker ps --format '{{.Names}}' | grep -q "^spread-backend$"; then
+        docker exec spread-backend python /app/scripts/etl_daily.py
+    else
+        echo "ERROR: spread-backend container is not running"
+        exit 1
+    fi
+}
+
+do_backup() {
+    mkdir -p "$BACKUP_DIR"
+    TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+    ARCHIVE="$BACKUP_DIR/data-$TIMESTAMP.tar.gz"
+    echo "Creating backup: $ARCHIVE"
+    tar czf "$ARCHIVE" -C "$PROJECT_DIR" data
+    echo "Backup complete: $(du -h "$ARCHIVE" | cut -f1)"
+
+    echo "Cleaning backups older than ${RETENTION_DAYS} days..."
+    find "$BACKUP_DIR" -name "data-*.tar.gz" -mtime +${RETENTION_DAYS} -delete
+}
+
+do_restore() {
+    ARCHIVE="$1"
+    if [ ! -f "$ARCHIVE" ]; then
+        echo "ERROR: $ARCHIVE not found"
+        exit 1
+    fi
+    echo "Restoring from: $ARCHIVE"
+    docker compose down 2>/dev/null || true
+    rm -rf "$DATA_DIR"
+    tar xzf "$ARCHIVE" -C "$PROJECT_DIR"
+    docker compose up -d
+    echo "Restore complete."
+}
+
+do_list() {
+    mkdir -p "$BACKUP_DIR"
+    echo "Available backups:"
+    ls -lh "$BACKUP_DIR"/data-*.tar.gz 2>/dev/null || echo "  (none)"
+}
+
+[ $# -lt 1 ] && usage
+
+case "$1" in
+    run)    do_etl ;;
+    backup) do_backup ;;
+    restore) [ $# -lt 2 ] && usage; do_restore "$2" ;;
+    list)   do_list ;;
+    *)      usage ;;
+esac

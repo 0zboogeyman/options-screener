@@ -1,9 +1,12 @@
 fastapi==0.112.2
 uvicorn[standard]==0.30.1
-pydantic==1.10.15
+pydantic>=2.0,<3.0
+pydantic-settings>=2.0
 pandas==2.2.2
 pyarrow==16.1.0
 numpy==1.26.4
 scipy==1.13.1
 httpx==0.27.0
 python-dateutil==2.9.0.post0
+slowapi>=0.1.9
+tenacity>=8.0

@@ -42,6 +42,7 @@ out/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.tsbuildinfo
 
 # Environment variables
 .env
@@ -54,8 +55,8 @@ data/parquet/
 *.parquet
 *.arrow
 
-# PM2
-.pm2/
+# Docker
+docker-compose.override.yml
 
 # OS
 .DS_Store
@@ -65,15 +66,9 @@ Thumbs.db
 logs/
 *.log
 
+# Backup
+backups/
+
 # Temporary files
 *.tmp
 *.temp
-
-# Admin and deployment docs (internal only)
-CADDY_CONFIG_REQUEST.txt
-DEPLOYMENT_COMPLETE.md
-PERMISSION_FIX_NEEDED.md
-PRODUCTION_STATUS.md
-QUICK_REQUEST.txt
-REQUEST_TO_ADMIN.md
-URGENT_CADDY_UPDATE.txt

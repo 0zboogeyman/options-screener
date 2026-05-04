@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from ..services.loader import list_available_dates, list_expiries_for, get_manifest
 
@@ -9,12 +9,13 @@ router = APIRouter()
 
 
 @router.get("/meta/dates")
-def get_dates():
+def get_dates(request: Request):
     return {"dates": list_available_dates()}
 
 
 @router.get("/expiries")
 def get_expiries(
+    request: Request,
     base: str = Query(..., pattern="^(BTC|ETH)$"),
     date: str = Query(..., description="YYYY-MM-DD"),
 ):
@@ -27,6 +28,7 @@ def get_expiries(
 
 @router.get("/meta/asof")
 def get_asof(
+    request: Request,
     base: str = Query(..., pattern="^(BTC|ETH)$"),
     date: str = Query(..., description="YYYY-MM-DD"),
 ):
@@ -39,4 +41,3 @@ def get_asof(
     bases = manifest.get("bases", [])
     expiries = manifest.get("expiries", {}).get(base, []) if manifest else []
     return {"date": date, "base": base, "asof_ts": asof, "expiries": expiries}
-

@@ -1,56 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")"/.. && pwd)"
-cd "$ROOT_DIR"
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$PROJECT_DIR"
 
-mkdir -p data
+echo "=== Option Strategy Finder 部署 ==="
 
-echo "[Deploy] Building images..."
+echo "[1/5] 停止旧容器..."
+docker compose down 2>/dev/null || true
+
+echo "[2/5] 确保数据目录存在..."
+mkdir -p ./data/parquet
+chmod 755 ./data ./data/parquet 2>/dev/null || true
+
+echo "[3/5] 构建镜像..."
 docker compose build
 
-echo "[Deploy] Starting services..."
+echo "[4/5] 启动服务..."
 docker compose up -d
 
-echo "[Deploy] Waiting for backend to be healthy..."
-timeout=60
-elapsed=0
-while ! docker compose exec -T backend curl -fsS http://127.0.0.1:8000/api/health >/dev/null 2>&1; do
-    sleep 2
-    elapsed=$((elapsed + 2))
-    if [ "$elapsed" -ge "$timeout" ]; then
-        echo "[Deploy] ERROR: Backend health check timed out after ${timeout}s"
-        echo "[Deploy] Backend logs:"
-        docker compose logs backend --tail 50
-        exit 1
+echo "[5/5] 等待后端健康检查..."
+for i in $(seq 1 30); do
+    if curl -sf http://localhost:3115/api/health > /dev/null 2>&1; then
+        echo "后端健康检查通过 (${i}s)"
+        break
     fi
-    echo "[Deploy] Waiting for backend... (${elapsed}s/${timeout}s)"
+    if [ "$i" -eq 30 ]; then
+        echo "⚠  后端启动超时，请检查日志: docker compose logs backend"
+    fi
+    sleep 2
 done
-echo "[Deploy] Backend is healthy!"
-
-echo "[Deploy] Running initial ETL (today UTC)..."
-DATE_UTC=$(date -u +%F)
-docker compose exec -T backend python /app/scripts/etl_daily.py --date "$DATE_UTC"
-
-echo "[Deploy] Warm up API..."
-sleep 2
-curl -fsS http://127.0.0.1:3115/api/health || true
-curl -fsS http://127.0.0.1:3115/api/meta/dates || true
-
-echo "[Deploy] Configure PM2 schedule (Asia/Shanghai 16:05 daily)"
-if command -v pm2 >/dev/null 2>&1; then
-    pm2 set pm2:tz Asia/Shanghai || true
-    pm2 delete spread-etl >/dev/null 2>&1 || true
-    pm2 start ops/etl_docker.sh --name spread-etl --cron "5 16 * * *"
-    pm2 save || true
-    echo "[Deploy] PM2 job 'spread-etl' installed."
-else
-    echo "[Deploy] pm2 not found; skip schedule. You can add cron or install pm2. See ops/README-DEPLOY.md"
-fi
 
 echo ""
-echo "=========================================="
-echo "[Deploy] Done!"
-echo "  Frontend: http://127.0.0.1:3116/spread-finder"
-echo "  Backend:  http://127.0.0.1:3115/api/health"
-echo "=========================================="
+echo "=== 部署完成 ==="
+echo "后端: http://localhost:3115/api/health"
+echo "前端: http://localhost:3116/spread-finder"
+echo ""
+echo "数据尚未初始化? 运行: docker exec spread-backend python /app/scripts/etl_daily.py"
+echo "配置定时ETL:  crontab -e  添加  5 16 * * * docker exec spread-backend python /app/scripts/etl_daily.py"

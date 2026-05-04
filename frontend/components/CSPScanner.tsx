@@ -1,34 +1,8 @@
 import { useState } from 'react';
 
+import type { CSPResult } from '../types/api';
+
 const API_BASE = '/api';
-
-interface CSPCandidate {
-  symbol: string;
-  expiry_date: string;
-  strike: number;
-  delta: number;
-  premium: number;
-  breakeven: number;
-  discount_pct: number;
-  apr: number;
-  assign_prob: number;
-  oi: number;
-  spread_bps: number;
-  dte: number;
-  score: number;
-  quality: string;
-}
-
-interface CSPResult {
-  asof_date: string;
-  asof_ts: number;
-  base: string;
-  spot_price: number;
-  dvol_index?: number;
-  strategy: string;
-  filters: any;
-  candidates: CSPCandidate[];
-}
 
 function formatNumber(num: number, decimals: number = 2): string {
   return num.toLocaleString('en-US', {
@@ -75,7 +49,7 @@ export default function CSPScanner({ onDataUpdate }: CSPScannerProps) {
       });
 
       if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
-      const data = await resp.json();
+      const data: CSPResult = await resp.json();
       setResult(data);
 
       if (onDataUpdate && data.asof_ts) {

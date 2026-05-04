@@ -1,0 +1,24 @@
+option.311472.xyz {
+    encode zstd gzip
+
+    header {
+        -Server
+        X-Frame-Options SAMEORIGIN
+        X-Content-Type-Options nosniff
+    }
+
+    # 后端 API — 所有 /api/* 请求转发到 backend
+    handle /api/* {
+        reverse_proxy 127.0.0.1:3115
+    }
+
+    # 前端 — /spread-finder 路径下的静态资源
+    handle /spread-finder* {
+        reverse_proxy 127.0.0.1:3116
+    }
+
+    # 根路径重定向到应用
+    handle {
+        redir / /spread-finder
+    }
+}

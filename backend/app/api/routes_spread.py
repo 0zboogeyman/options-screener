@@ -1,10 +1,15 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from ..services.loader import load_chain_for, get_latest_date
 from ..services.scanner import scan_buckets, scan_opinion_spreads
+
+
+limiter = Limiter(key_func=get_remote_address)
 
 
 class ScanRequest(BaseModel):
@@ -30,7 +35,8 @@ router = APIRouter()
 
 
 @router.post("/spread/scan")
-def scan(req: ScanRequest):
+@limiter.limit("10/minute")
+def scan(request: Request, req: ScanRequest):
     try:
         chain, meta = load_chain_for(date=req.date, base=req.base)
     except FileNotFoundError:
@@ -49,14 +55,9 @@ def scan(req: ScanRequest):
 
 
 @router.post("/spread/opinion")
-def opinion(req: OpinionRequest):
-    """
-    根据用户观点（目标价 + 时间范围）筛选最优价差策略
-    - up/down: 借方价差（付权利金）
-    - not_up/not_down: 贷方价差（收权利金）
-    """
+@limiter.limit("10/minute")
+def opinion(request: Request, req: OpinionRequest):
     try:
-        # 使用最新日期的数据
         latest_date = get_latest_date()
         chain, meta = load_chain_for(date=latest_date, base=req.base)
     except FileNotFoundError:
@@ -72,4 +73,3 @@ def opinion(req: OpinionRequest):
         return_count=req.return_per_bucket,
     )
     return result
-

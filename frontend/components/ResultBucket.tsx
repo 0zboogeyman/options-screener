@@ -1,7 +1,4 @@
-type ScanLeg = {
-  K1: number; K2: number; premium: number; max_profit: number; max_loss: number; odds: number; pop?: number | null; quality?: string | null;
-}
-type Bucket = { leg_type: 'CALL'|'PUT'; side: 'DEBIT'|'CREDIT'; top: ScanLeg[]; bottom: ScanLeg[] };
+import type { Bucket, ScanLeg } from '../types/api';
 
 interface ResultBucketProps {
   bucket: Bucket;
