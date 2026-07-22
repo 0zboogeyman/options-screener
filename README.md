@@ -163,4 +163,3 @@ bash ops/etl_docker.sh restore backups/data-XXXXXXXX.tar.gz      # 恢复
 
 本项目仅供教育和研究用途，不构成任何投资建议。期权交易存在高风险，
 使用者需自行承担所有盈亏。数据来源于 Deribit 公开 API。
-项目地址：https://github.com/0zBoogeyman/option-strategy-finder
