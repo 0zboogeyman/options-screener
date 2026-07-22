@@ -1,12 +1,18 @@
 import { useEffect, useState } from 'react';
 
-import type { DatesResp, ExpiriesResp, ScanResp, Bucket, ScanLeg, OpinionResult } from '../types/api';
+import type { DatesResp, ExpiriesResp, ScanResp, OpinionResult } from '../types/api';
 import ResultBucket from '../components/ResultBucket';
 import CSPScanner from '../components/CSPScanner';
 import CCScanner from '../components/CCScanner';
 import { useToast } from '../components/Toast';
 
 const API_BASE = '/api';
+
+/** 把 HTTP 错误状态转成可读文案（429 限流给出明确提示） */
+function httpError(resp: Response): Error {
+  if (resp.status === 429) return new Error('操作太频繁，请稍候再试');
+  return new Error(`${resp.status} ${resp.statusText}`);
+}
 
 function formatNumber(num: number, decimals: number = 2): string {
   return num.toLocaleString('en-US', {
@@ -154,9 +160,10 @@ export default function Home() {
   }, [base]);
 
   useEffect(() => {
+    const ctrl = new AbortController();
     const fetchInitialData = async () => {
       try {
-        const datesResp = await fetch(`${API_BASE}/meta/dates`);
+        const datesResp = await fetch(`${API_BASE}/meta/dates`, { signal: ctrl.signal });
         const datesData: DatesResp = await datesResp.json();
         const ds = datesData.dates || [];
         setDates(ds);
@@ -165,30 +172,29 @@ export default function Home() {
         const latestDate = ds[ds.length - 1];
         setDate(latestDate);
 
-        const scanResp = await fetch(`${API_BASE}/spread/scan`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base, date: latestDate, direction: 'up', tenor: 'mid', return_per_bucket: 1 })
-        });
-
-        if (scanResp.ok) {
-          const scanData: ScanResp = await scanResp.json();
+        // 仅取 asof/spot/dvol 元信息，不再触发一次完整扫描
+        const asofResp = await fetch(`${API_BASE}/meta/asof?base=${base}&date=${latestDate}`, { signal: ctrl.signal });
+        if (asofResp.ok) {
+          const asofData = await asofResp.json();
           setGlobalData({
-            asof_ts: scanData.asof_ts,
-            spot_price: scanData.spot_price || undefined,
-            dvol_index: scanData.dvol_index || undefined,
+            asof_ts: asofData.asof_ts,
+            spot_price: asofData.spot_price ?? undefined,
+            dvol_index: asofData.dvol_index ?? undefined,
           });
         }
-      } catch (e) {
+      } catch (e: any) {
+        if (e?.name === 'AbortError') return;
         console.error('Failed to fetch initial data:', e);
       }
     };
     fetchInitialData();
+    return () => ctrl.abort();
   }, []);
 
   useEffect(() => {
     if (!date || !base) return;
-    fetch(`${API_BASE}/expiries?base=${base}&date=${date}`)
+    const ctrl = new AbortController();
+    fetch(`${API_BASE}/expiries?base=${base}&date=${date}`, { signal: ctrl.signal })
       .then(r => r.json())
       .then((d: ExpiriesResp) => {
         const exps = d.expiries.filter((e: number) => e !== 0);
@@ -197,10 +203,11 @@ export default function Home() {
           setSelectedExpiry(findWeeklyExpiry(exps));
         }
       })
-      .catch((e: Error) => setError(String(e)));
+      .catch((e: Error) => { if (e?.name !== 'AbortError') setError(String(e)); });
+    return () => ctrl.abort();
   }, [date, base]);
 
-  const doScan = async () => {
+  const doScan = async (signal?: AbortSignal) => {
     if (!selectedExpiry) return;
     setLoading(true); setError(''); setResult(null);
 
@@ -210,58 +217,36 @@ export default function Home() {
     else if (days > 30) tenor = 'mid';
 
     try {
-      const [callResp, putResp] = await Promise.all([
-        fetch(`${API_BASE}/spread/scan`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base, date, direction: 'up', tenor, return_per_bucket: 10 })
-        }),
-        fetch(`${API_BASE}/spread/scan`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base, date, direction: 'down', tenor, return_per_bucket: 10 })
-        })
-      ]);
+      // direction=both 一次请求返回 CALL+PUT 全部 bucket，
+      // 替代原先 up/down 两次请求 + 前端合并
+      const resp = await fetch(`${API_BASE}/spread/scan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal,
+        body: JSON.stringify({ base, date, direction: 'both', tenor, return_per_bucket: 10 })
+      });
 
-      if (!callResp.ok) throw new Error(`CALL: ${callResp.status} ${callResp.statusText}`);
-      if (!putResp.ok) throw new Error(`PUT: ${putResp.status} ${putResp.statusText}`);
+      if (!resp.ok) throw httpError(resp);
 
-      const callData = await callResp.json() as ScanResp;
-      const putData = await putResp.json() as ScanResp;
+      const data = await resp.json() as ScanResp;
 
-      const combineBuckets = (buckets: Bucket[]) => {
-        const map = new Map<string, Bucket>();
-        for (const b of buckets) {
-          const key = `${b.leg_type}_${b.side}`;
-          if (map.has(key)) {
-            const existing = map.get(key)!;
-            existing.top.push(...b.top);
-            existing.bottom.push(...b.bottom);
-          } else {
-            map.set(key, { ...b, top: [...b.top], bottom: [...b.bottom] });
-          }
-        }
-        return Array.from(map.values());
-      };
-
-      const mergedData: ScanResp = {
-        ...callData,
-        buckets: [...combineBuckets(callData.buckets), ...combineBuckets(putData.buckets)]
-      };
-
-      setResult(mergedData);
+      setResult(data);
       setGlobalData({
-        asof_ts: mergedData.asof_ts,
-        spot_price: mergedData.spot_price || undefined,
-        dvol_index: mergedData.dvol_index || undefined,
+        asof_ts: data.asof_ts,
+        spot_price: data.spot_price || undefined,
+        dvol_index: data.dvol_index || undefined,
       });
     } catch (e: any) {
+      if (e?.name === 'AbortError') return;
       setError(e?.message || String(e));
-    } finally { setLoading(false); }
+    } finally { if (!signal?.aborted) setLoading(false); }
   };
 
   useEffect(() => {
-    if (date && selectedExpiry) doScan();
+    if (!date || !selectedExpiry) return;
+    const ctrl = new AbortController();
+    doScan(ctrl.signal);
+    return () => ctrl.abort();
   }, [date, base, selectedExpiry]);
 
   const doOpinionScan = async () => {
@@ -286,7 +271,7 @@ export default function Home() {
         })
       });
 
-      if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+      if (!resp.ok) throw httpError(resp);
       const data: OpinionResult = await resp.json();
       setOpinionResult(data);
       setGlobalData({
@@ -443,8 +428,7 @@ export default function Home() {
 
       <div className="footer">
         <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>仅教育用途，非投资建议，数据来源于 Deribit</div>
-        <div style={{ marginBottom: '4px' }}>原作者 Kunkka 来自 SignalPlus，项目地址：<a href="https://github.com/xiaochongkun/option-strategy-finder" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary-color)', textDecoration: 'underline' }}>GitHub - option-strategy-finder</a></div>
-        <div>二次开发 by 0zBoogeyman，项目地址：<a href="https://github.com/0zBoogeyman/option-strategy-finder" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary-color)', textDecoration: 'underline' }}>GitHub - 我的 Fork</a></div>
+        <div>项目地址：<a href="https://github.com/0zBoogeyman/option-strategy-finder" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary-color)', textDecoration: 'underline' }}>GitHub - option-strategy-finder</a></div>
       </div>
     </div>
   );

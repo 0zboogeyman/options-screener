@@ -1,58 +1,57 @@
-.PHONY: build up down restart logs status etl backup deploy clean
+.PHONY: build up down restart logs status etl backup clean help
+
+# 本目录即单容器部署项目根，相对卷路径直接指向 ./data。
+COMPOSE := docker compose
+
+help:
+	@echo "单容器部署目标："
+	@echo "  make build    构建合并镜像"
+	@echo "  make up       构建并启动单容器"
+	@echo "  make down     停止单容器"
+	@echo "  make restart  重启单容器"
+	@echo "  make logs     实时日志（uvicorn + node 交错输出）"
+	@echo "  make status   容器状态 + 双端口健康检查"
+	@echo "  make etl      在运行中的容器内执行每日 ETL"
+	@echo "  make backup   备份 data 目录（保留 7 天）"
+	@echo "  make clean    停止并删除容器与卷"
 
 build:
-	docker compose build
+	$(COMPOSE) build
 
 up:
-	docker compose up -d
+	$(COMPOSE) up -d --build
 
 down:
-	docker compose down
+	$(COMPOSE) down
 
 restart:
-	docker compose down && docker compose up -d
+	$(COMPOSE) down && $(COMPOSE) up -d
 
 logs:
-	docker compose logs -f --tail=100
+	$(COMPOSE) logs -f --tail=100
 
 status:
-	@echo "=== Container Status ==="
-	@docker compose ps
+	@echo "=== 容器状态 ==="
+	@$(COMPOSE) ps
 	@echo ""
-	@echo "=== Backend Health ==="
-	@curl -s http://localhost:3115/api/health || echo "Backend unreachable"
+	@echo "=== 后端健康 (3115) ==="
+	@curl -s http://localhost:3115/api/health || echo "unreachable"
+	@echo ""
+	@echo "=== 前端 (3116) ==="
+	@curl -sI http://localhost:3116/ | head -n 1 || echo "unreachable"
 	@echo ""
 
 etl:
 	docker exec spread-backend python /app/scripts/etl_daily.py
 
 backup:
-	@echo "Backing up data directory..."
+	@echo "备份 spread-data 卷..."
 	@mkdir -p ./backups
-	tar czf "./backups/data-$(shell date +%%Y%%m%%d-%%H%%M%%S).tar.gz" ./data
-	@echo "Backup complete."
-	@echo ""
-	@echo "Cleaning old backups (>$(BACKUP_RETENTION)d)..."
-	find ./backups -name "data-*.tar.gz" -mtime +7 -delete
-	@echo "Backup rotation complete."
-
-deploy:
-	@echo "=== Building images ==="
-	docker compose build
-	@echo "=== Starting services ==="
-	docker compose up -d
-	@echo "=== Waiting for backend healthy ==="
-	@for i in $$(seq 1 30); do \
-		if curl -sf http://localhost:3115/api/health > /dev/null 2>&1; then \
-			echo "Backend healthy after $$i seconds"; \
-			break; \
-		fi; \
-		sleep 2; \
-	done
-	@echo "=== Checking data ==="
-	@docker exec spread-backend python -c "from app.services.loader import list_available_dates; print(list_available_dates())" 2>/dev/null || echo "No data yet, run 'make etl'"
-	@echo "=== Deploy complete ==="
+	docker run --rm -v spread-data:/data -v "$$(pwd)":/backup alpine \
+		tar czf "/backup/data-$$(date +%Y%m%d-%H%M%S).tar.gz" -C /data .
+	@echo "清理超过 7 天的旧备份..."
+	find ./backups -name "data-*.tar.gz" -mtime +7 -delete 2>/dev/null || true
+	@echo "备份完成。"
 
 clean:
-	docker compose down -v
-	docker system prune -f
+	$(COMPOSE) down -v

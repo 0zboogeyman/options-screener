@@ -72,3 +72,13 @@ backups/
 # Temporary files
 *.tmp
 *.temp
+
+# Local deploy scripts (not for GitHub)
+deploy.py
+_pack_tmp.py
+verify_*.py
+project-deploy.tar.gz
+
+# SSH keys (safety, should never be in repo)
+*_key
+*_key_tmp

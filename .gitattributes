@@ -1,0 +1,11 @@
+# 强制文本文件使用 LF 行尾，避免 Windows 检出 CRLF 后在 Linux 容器内
+# 报 "/entrypoint.sh: not found" 或 bash 解析异常。
+* text=auto eol=lf
+
+# 二进制资源不做行尾转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.parquet binary
+*.gz binary

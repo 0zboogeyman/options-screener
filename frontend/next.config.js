@@ -6,16 +6,14 @@ const nextConfig = {
   basePath,
   reactStrictMode: true,
   async rewrites() {
-    if (process.env.NODE_ENV === "development") {
-      const apiProxyDest = process.env.NEXT_PUBLIC_API_PROXY_DEST || "http://localhost:8000";
-      return [
-        {
-          source: "/api/:path*",
-          destination: `${apiProxyDest}/api/:path*`,
-        },
-      ];
-    }
-    return [];
+    const apiProxyDest = process.env.NEXT_PUBLIC_API_PROXY_DEST || "http://localhost:8000";
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${apiProxyDest}/api/:path*`,
+        basePath: false,
+      },
+    ];
   },
 };
 

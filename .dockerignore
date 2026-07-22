@@ -1,0 +1,44 @@
+# 构建上下文忽略清单（项目根）。
+# 排除一切构建后端 venv 与 Next.js standalone 之外无需的文件，
+# 让上下文上传保持小而可复现。
+
+# VCS / 编辑器 / 系统
+.git
+.gitignore
+.gitattributes
+.vscode
+.idea
+.DS_Store
+
+# 运行时数据与备份（绝不烤进镜像）
+data
+backups
+*.tar.gz
+
+# 环境变量与密钥
+.env
+.env.*
+
+# Python 缓存与虚拟环境
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+.venv
+venv
+env
+
+# Node / Next.js 构建产物（镜像内会重新构建）
+**/node_modules
+frontend/.next
+frontend/out
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+
+# 文档与工具（构建时不需要）
+*.md

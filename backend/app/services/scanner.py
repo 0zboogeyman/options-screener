@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import heapq
 import logging
-from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
 import math
@@ -21,6 +21,15 @@ TENOR_FAR = (61, 180)
 HORIZON_SHORT = (7, 30)
 HORIZON_MID = (31, 90)
 HORIZON_LONG = (91, 365)
+
+# 单腿买卖价差（相对中间价）超过该值视为不可用腿，扫描时剔除。
+# 与 preprocessing.WIDE_SPREAD_THRESHOLD=0.15 的"打标"语义区分：这里是过滤阈值。
+SPREAD_RATIO_MAX = 0.5
+# 组合权利金（美元）低于该值不进入候选（避免深度虚值腿干扰排序）
+MIN_PREMIUM_USD = 10.0
+# scan_buckets 组合扫描时，两腿之间允许的最大行权价步数；
+# 将 O(n²) 组合降为 O(n·g)，宽跨度组合的赔率通常极差，对 top 结果影响可忽略
+DEFAULT_MAX_GAP_STEPS = 10
 
 
 def _tenor_window(tenor: str) -> Tuple[int, int]:
@@ -91,13 +100,14 @@ def scan_buckets(
     return_per_bucket: int = 3,
     min_oi: int = 0,
     max_width: float | None = None,
+    max_gap_steps: int = DEFAULT_MAX_GAP_STEPS,
 ):
     df = prep_chain(chain_df)
     asof = int(meta.asof_ts)
     date = meta.date
 
     df = df[df["mid"].notna()].copy()
-    df = df[df["spread_ratio"] <= 0.5].copy()
+    df = df[df["spread_ratio"] <= SPREAD_RATIO_MAX].copy()
 
     if min_oi:
         df = df[df["oi"].fillna(0) >= min_oi]
@@ -147,7 +157,7 @@ def scan_buckets(
                 if kind == "PUT" and k1 > s:
                     continue
 
-                for b in range(a + 1, len(vi)):
+                for b in range(a + 1, min(len(vi), a + 1 + max_gap_steps)):
                     j = vi[b]
                     k2 = float(strikes[j])
                     if max_width is not None and (k2 - k1) > max_width:
@@ -169,16 +179,15 @@ def scan_buckets(
                     premium_usd_debit = abs(debit["premium"]) * s
                     premium_usd_credit = abs(credit["premium"]) * s
 
-                    if premium_usd_debit >= 10:
+                    if premium_usd_debit >= MIN_PREMIUM_USD:
                         legs_debit.append({"K1": k1, "K2": k2, **debit, "quality": "ok"})
-                    if premium_usd_credit >= 10:
+                    if premium_usd_credit >= MIN_PREMIUM_USD:
                         legs_credit.append({"K1": k1, "K2": k2, **credit, "quality": "ok"})
 
             def _rank(lst: List[Dict]):
                 lst = [x for x in lst if not math.isnan(x["odds"]) and x["odds"] != float("inf")]
-                lst.sort(key=lambda x: x["odds"], reverse=True)
-                top = lst[:return_per_bucket]
-                bottom = lst[-return_per_bucket:][::-1] if return_per_bucket > 0 else []
+                top = heapq.nlargest(return_per_bucket, lst, key=lambda x: x["odds"])
+                bottom = heapq.nsmallest(return_per_bucket, lst, key=lambda x: x["odds"])
                 return top, bottom
 
             top_d, bot_d = _rank(legs_debit)
@@ -239,7 +248,7 @@ def scan_opinion_spreads(
     date = meta.date
 
     df = df[df["mid"].notna()].copy()
-    df = df[df["spread_ratio"] <= 0.5].copy()
+    df = df[df["spread_ratio"] <= SPREAD_RATIO_MAX].copy()
 
     df["dte"] = (df["expiry_ts"] - asof) / (1000 * 60 * 60 * 24)
     tmin, tmax = _horizon_window(horizon)
@@ -320,7 +329,7 @@ def scan_opinion_spreads(
                 m1 = float(mids[i])
                 metrics = _calc_vertical_metrics("CALL", "DEBIT", k1, anchor_strike, long_px=m1, short_px=anchor_mid, s=s, iv=iv, t_years=t_years)
                 premium_usd = abs(metrics["premium"]) * s
-                if premium_usd < 10 or math.isnan(metrics["odds"]) or metrics["odds"] == float("inf"):
+                if premium_usd < MIN_PREMIUM_USD or math.isnan(metrics["odds"]) or metrics["odds"] == float("inf"):
                     continue
                 candidates.append({
                     "expiry_ts": int(exp_ts),
@@ -344,7 +353,7 @@ def scan_opinion_spreads(
                 m2 = float(mids[i])
                 metrics = _calc_vertical_metrics("PUT", "DEBIT", anchor_strike, k2, long_px=anchor_mid, short_px=m2, s=s, iv=iv, t_years=t_years)
                 premium_usd = abs(metrics["premium"]) * s
-                if premium_usd < 10 or math.isnan(metrics["odds"]) or metrics["odds"] == float("inf"):
+                if premium_usd < MIN_PREMIUM_USD or math.isnan(metrics["odds"]) or metrics["odds"] == float("inf"):
                     continue
                 candidates.append({
                     "expiry_ts": int(exp_ts),
@@ -368,7 +377,7 @@ def scan_opinion_spreads(
                 m2 = float(mids[i])
                 metrics = _calc_vertical_metrics("CALL", "CREDIT", anchor_strike, k2, long_px=m2, short_px=anchor_mid, s=s, iv=iv, t_years=t_years)
                 premium_usd = abs(metrics["premium"]) * s
-                if premium_usd < 10 or math.isnan(metrics["odds"]) or metrics["odds"] == float("inf"):
+                if premium_usd < MIN_PREMIUM_USD or math.isnan(metrics["odds"]) or metrics["odds"] == float("inf"):
                     continue
                 candidates.append({
                     "expiry_ts": int(exp_ts),
@@ -392,7 +401,7 @@ def scan_opinion_spreads(
                 m2 = float(mids[i])
                 metrics = _calc_vertical_metrics("PUT", "CREDIT", anchor_strike, k2, long_px=m2, short_px=anchor_mid, s=s, iv=iv, t_years=t_years)
                 premium_usd = abs(metrics["premium"]) * s
-                if premium_usd < 10 or math.isnan(metrics["odds"]) or metrics["odds"] == float("inf"):
+                if premium_usd < MIN_PREMIUM_USD or math.isnan(metrics["odds"]) or metrics["odds"] == float("inf"):
                     continue
                 candidates.append({
                     "expiry_ts": int(exp_ts),

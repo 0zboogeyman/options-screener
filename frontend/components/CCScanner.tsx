@@ -20,7 +20,7 @@ export default function CCScanner({ onDataUpdate }: CCScannerProps) {
   const [maxDte, setMaxDte] = useState('60');
   const [maxDelta, setMaxDelta] = useState('0.30');
   const [minOi, setMinOi] = useState('10');
-  const [maxSpreadBps, setMaxSpreadBps] = useState('500');
+  const [maxSpreadBps, setMaxSpreadBps] = useState('1500');
   const [positionSize, setPositionSize] = useState('1');
 
   const [loading, setLoading] = useState(false);
@@ -48,7 +48,10 @@ export default function CCScanner({ onDataUpdate }: CCScannerProps) {
         })
       });
 
-      if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+      if (!resp.ok) {
+        if (resp.status === 429) throw new Error('操作太频繁，请稍候再试');
+        throw new Error(`${resp.status} ${resp.statusText}`);
+      }
       const data: CCResult = await resp.json();
       setResult(data);
 

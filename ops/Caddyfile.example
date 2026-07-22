@@ -1,24 +1,23 @@
-option.311472.xyz {
+# 替换 yourdomain.com 为你的真实域名后放入 /etc/caddy/Caddyfile
+# 若仅用 IP+端口直连，不需要此文件。
+yourdomain.com {
     encode zstd gzip
 
     header {
         -Server
         X-Frame-Options SAMEORIGIN
         X-Content-Type-Options nosniff
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        Referrer-Policy strict-origin-when-cross-origin
     }
 
-    # 后端 API — 所有 /api/* 请求转发到 backend
+    # /api/* 转发到容器内 FastAPI（仅本机可见端口）
     handle /api/* {
         reverse_proxy 127.0.0.1:3115
     }
 
-    # 前端 — /spread-finder 路径下的静态资源
-    handle /spread-finder* {
-        reverse_proxy 127.0.0.1:3116
-    }
-
-    # 根路径重定向到应用
+    # 其余路径转发到容器内 Next.js
     handle {
-        redir / /spread-finder
+        reverse_proxy 127.0.0.1:3116
     }
 }

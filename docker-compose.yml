@@ -1,22 +1,42 @@
-version: '3.8'
+# Option Strategy Finder - 单容器部署
+# 构建上下文即本目录（项目根），镜像自包含，不引用任何外部路径。
+# 可变配置统一在 .env 文件；首次部署：cp .env.example .env 后按需修改。
 
 services:
-  backend:
+  app:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
-    image: spread-backend:latest
+      context: .
+      dockerfile: Dockerfile.combined
+    image: spread-app:latest
     container_name: spread-backend
     restart: unless-stopped
     init: true
     stop_grace_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
-      - LOG_LEVEL=INFO
-      - CORS_ORIGINS=["https://option.311472.xyz"]
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
       - DATA_ROOT=/app/data/parquet
+    # 可变配置（LOG_LEVEL/CORS_ORIGINS/ETL_SCHEDULE/RATE_LIMIT_PER_MINUTE 等）
+    # 统一从 .env 文件读取；首次部署：cp .env.example .env
+    env_file:
+      # required: false —— 即使没有 .env 也能启动（回退到源码内置默认值），
+      # 真正实现 "docker compose up -d --build" 零配置开箱即用。
+      - path: .env
+        required: false
     volumes:
-      - ./data:/app/data
+      # named volume：docker 自动管理属主，消除部署时权限踩坑。
+      - spread-data:/app/data
     ports:
+      # 前端页面：IP+端口直连，端口由 .env 的 PUBLIC_PORT 控制（默认 3116）。
+      # 经反向代理绑域名时，把 PUBLIC_PORT 改为 "127.0.0.1:3116:3000"。
+      - "${PUBLIC_PORT:-3116}:3000"
+      # 后端 API：仅本机可见，供 Caddy/Nginx 反代 /api/* 使用。
+      # IP+端口直连场景不需要它，但保留无害（绑 127.0.0.1 不对外）。
       - "127.0.0.1:3115:8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
@@ -27,34 +47,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 768M
           cpus: '1.0'
         reservations:
-          memory: 256M
+          memory: 384M
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        - NEXT_PUBLIC_BASE_PATH=/spread-finder
-    image: spread-frontend:latest
-    container_name: spread-frontend
-    restart: unless-stopped
-    init: true
-    stop_grace_period: 10s
-    environment:
-      - NODE_ENV=production
-      - NEXT_PUBLIC_BASE_PATH=/spread-finder
-    ports:
-      - "127.0.0.1:3116:3000"
-    depends_on:
-      backend:
-        condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: '0.5'
-        reservations:
-          memory: 128M
+volumes:
+  spread-data:
+    driver: local

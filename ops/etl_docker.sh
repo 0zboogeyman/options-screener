@@ -27,8 +27,9 @@ do_backup() {
     mkdir -p "$BACKUP_DIR"
     TIMESTAMP=$(date +%Y%m%d-%H%M%S)
     ARCHIVE="$BACKUP_DIR/data-$TIMESTAMP.tar.gz"
-    echo "Creating backup: $ARCHIVE"
-    tar czf "$ARCHIVE" -C "$PROJECT_DIR" data
+    echo "Creating backup of spread-data volume: $ARCHIVE"
+    docker run --rm -v spread-data:/data -v "$PROJECT_DIR":/backup alpine \
+        tar czf "/backup/backups/data-$TIMESTAMP.tar.gz" -C /data .
     echo "Backup complete: $(du -h "$ARCHIVE" | cut -f1)"
 
     echo "Cleaning backups older than ${RETENTION_DAYS} days..."
@@ -43,8 +44,10 @@ do_restore() {
     fi
     echo "Restoring from: $ARCHIVE"
     docker compose down 2>/dev/null || true
-    rm -rf "$DATA_DIR"
-    tar xzf "$ARCHIVE" -C "$PROJECT_DIR"
+    docker volume rm spread-data 2>/dev/null || true
+    REL="${ARCHIVE#$PROJECT_DIR/}"
+    docker run --rm -v spread-data:/data -v "$PROJECT_DIR":/backup alpine \
+        tar xzf "/backup/$REL" -C /data
     docker compose up -d
     echo "Restore complete."
 }
