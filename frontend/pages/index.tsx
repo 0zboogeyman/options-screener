@@ -428,7 +428,7 @@ export default function Home() {
 
       <div className="footer">
         <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>仅教育用途，非投资建议，数据来源于 Deribit</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
           Powered by
           <a href="https://github.com/0zboogeyman/option-strategy-finder" target="_blank" rel="noopener noreferrer" aria-label="GitHub" style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--primary-color)' }}>
             <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor" aria-hidden="true">
