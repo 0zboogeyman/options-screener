@@ -38,7 +38,7 @@ def _cached_available_dates() -> list:
 def create_app() -> FastAPI:
     docs_enabled = settings.api_docs_enabled
     app = FastAPI(
-        title="Spread Finder API",
+        title="Options Screener API",
         version="0.2.0",
         docs_url="/docs" if docs_enabled else None,
         redoc_url="/redoc" if docs_enabled else None,

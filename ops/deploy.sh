@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJECT_DIR"
 
-echo "=== Option Strategy Finder 单容器部署 ==="
+echo "=== Options Screener 单容器部署 ==="
 
 echo "[1/4] 准备 .env 配置..."
 if [ ! -f .env ]; then

@@ -42,12 +42,12 @@ status:
 	@echo ""
 
 etl:
-	docker exec spread-backend python /app/scripts/etl_daily.py
+	docker exec options-screener python /app/scripts/etl_daily.py
 
 backup:
-	@echo "备份 spread-data 卷..."
+	@echo "备份 options-screener-data 卷..."
 	@mkdir -p ./backups
-	docker run --rm -v spread-data:/data -v "$$(pwd)":/backup alpine \
+	docker run --rm -v options-screener-data:/data -v "$$(pwd)":/backup alpine \
 		tar czf "/backup/data-$$(date +%Y%m%d-%H%M%S).tar.gz" -C /data .
 	@echo "清理超过 7 天的旧备份..."
 	find ./backups -name "data-*.tar.gz" -mtime +7 -delete 2>/dev/null || true

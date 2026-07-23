@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.6
 # =============================================================================
-# Option Strategy Finder - 单容器镜像（自包含项目根）
+# Options Screener - 单容器镜像（自包含项目根）
 # -----------------------------------------------------------------------------
 # 将原 backend(FastAPI/uvicorn :8000) 与 frontend(Next.js standalone :3000)
 # 两个服务合并进一个容器，由 supervisord 托管。应用源代码不做任何修改，
