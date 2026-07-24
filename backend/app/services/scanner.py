@@ -24,7 +24,9 @@ HORIZON_LONG = (91, 365)
 
 # 单腿买卖价差（相对中间价）超过该值视为不可用腿，扫描时剔除。
 # 与 preprocessing.WIDE_SPREAD_THRESHOLD=0.15 的"打标"语义区分：这里是过滤阈值。
-SPREAD_RATIO_MAX = 0.5
+# 0.35 阈值基于 Deribit 真实市场数据（BTC+ETH 1412 样本）系统性评估：
+#   F1=0.775（接近峰值 0.776）、Recall=0.987、avg_odds 比 0.5 低约 30%，候选质量更纯。
+SPREAD_RATIO_MAX = 0.35
 # 组合权利金（美元）低于该值不进入候选（避免深度虚值腿干扰排序）
 MIN_PREMIUM_USD = 10.0
 # scan_buckets 组合扫描时，两腿之间允许的最大行权价步数；
