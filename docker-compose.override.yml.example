@@ -42,25 +42,8 @@
 # ============================================================
 # 场景 3：挂载本地目录用于调试
 # ============================================================
-# 注意：前端为静态导出产物（frontend/out），改前端代码需重新 npm run build。
 # services:
 #   app:
 #     volumes:
 #       - ./backend/app:/app/app:ro
-#       - ./frontend/out:/app/frontend/out:ro
-
-# ============================================================
-# 场景 4：运行期站点配置（统计代码 / 广告位）
-# ============================================================
-# 不用重新构建镜像即可注入 Umami 统计与广告代码。
-# 步骤：
-#   1. cp ops/site-config.example.js ops/site-override/site-config.js
-#   2. 按需填写该文件（Umami src/websiteId、AdSense client、广告 HTML/slot）
-#   3. 取消下方注释
-#   4. docker compose up -d；以后改配置保存文件+刷新页面即生效
-# 原理：目录挂载覆盖镜像内默认空配置 /app/frontend/out/override/；
-# 目录挂载可避免单文件 bind mount 的 inode 不同步坑（编辑器 rename 保存）。
-# services:
-#   app:
-#     volumes:
-#       - ./ops/site-override:/app/frontend/out/override:ro
+#       - ./frontend/pages:/app/frontend/pages:ro

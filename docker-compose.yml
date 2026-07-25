@@ -17,6 +17,9 @@ services:
     cap_drop:
       - ALL
     environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
       - DATA_ROOT=/app/data/parquet
     # 可变配置（LOG_LEVEL/CORS_ORIGINS/ETL_SCHEDULE/RATE_LIMIT_PER_MINUTE 等）
     # 统一从 .env 文件读取；首次部署：cp .env.example .env
@@ -29,9 +32,12 @@ services:
       # named volume：docker 自动管理属主，消除部署时权限踩坑。
       - options-screener-data:/app/data
     ports:
-      # 页面 + API 同源单端口（容器 8000），端口由 .env 的 PUBLIC_PORT 控制（默认 3116）。
-      # 经反向代理绑域名时，把 PUBLIC_PORT 改为 "127.0.0.1:3116"。
-      - "${PUBLIC_PORT:-3116}:8000"
+      # 前端页面：IP+端口直连，端口由 .env 的 PUBLIC_PORT 控制（默认 3116）。
+      # 经反向代理绑域名时，把 PUBLIC_PORT 改为 "127.0.0.1:3116:3000"。
+      - "${PUBLIC_PORT:-3116}:3000"
+      # 后端 API：仅本机可见，供 Caddy/Nginx 反代 /api/* 使用。
+      # IP+端口直连场景不需要它，但保留无害（绑 127.0.0.1 不对外）。
+      - "127.0.0.1:3115:8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
