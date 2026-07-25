@@ -10,6 +10,7 @@ import pandas as pd
 
 from .bs import pop_for_vertical
 from .preprocessing import prep_chain
+from .svi import svi_iv
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,14 @@ def _empty_scan_result(meta, df: pd.DataFrame, **extra) -> Dict:
 
 
 def _calc_vertical_metrics(kind: str, side: str, k1: float, k2: float, long_px: float, short_px: float,
-                           s: float, iv: float, t_years: float) -> Dict:
+                           s: float, iv: float, t_years: float, iv_at=None) -> Dict:
+    """计算垂直价差指标。
+
+    iv_at：可选回调 iv_at(k_be) -> iv，按盈亏平衡行权价取 SVI 逐行权价 IV；
+    为 None 时用传入的 iv（兼容旧调用）。
+    注意 PoP 的 premium 必须换算成 USD（k 是 USD、premium 是币种），
+    旧版直接把币种 premium 加在 USD 行权价上属于单位混用。
+    """
     strike_width = abs(k2 - k1)
 
     if side == "DEBIT":
@@ -83,7 +91,15 @@ def _calc_vertical_metrics(kind: str, side: str, k1: float, k2: float, long_px: 
     else:
         odds = strike_width / premium_usd
 
-    pop = pop_for_vertical(kind=kind, side=side, s=s, k1=k1, k2=k2, premium=premium, vol=max(iv, 1e-6), t_years=max(t_years, 1e-6))
+    if iv_at is not None and math.isfinite(premium_usd):
+        k_be = (k1 + premium_usd) if kind.upper() == "CALL" else (k2 - premium_usd)
+        vol_be = float(iv_at(k_be))
+        if not math.isfinite(vol_be) or vol_be <= 0:
+            vol_be = iv
+    else:
+        vol_be = iv
+    pop = pop_for_vertical(kind=kind, side=side, s=s, k1=k1, k2=k2, premium=premium_usd,
+                           vol=max(vol_be, 1e-6), t_years=max(t_years, 1e-6))
 
     return {
         "premium": float(premium),
@@ -92,6 +108,17 @@ def _calc_vertical_metrics(kind: str, side: str, k1: float, k2: float, long_px: 
         "odds": float(odds),
         "pop": None if (isinstance(pop, float) and (math.isnan(pop) or pop < 0 or pop > 1)) else float(pop),
     }
+
+
+def _buy_sell_arrays(grp: pd.DataFrame, mids: np.ndarray, pricing_mode: str):
+    """按 pricing_mode 生成买入/卖出价数组（conservative：买 ask 卖 bid，缺边回退 mid）。"""
+    if pricing_mode != "conservative":
+        return mids, mids
+    bid = pd.to_numeric(grp["bid"], errors="coerce").to_numpy(dtype=float)
+    ask = pd.to_numeric(grp["ask"], errors="coerce").to_numpy(dtype=float)
+    buy = np.where(np.isfinite(ask) & (ask > 0), ask, mids)
+    sell = np.where(np.isfinite(bid) & (bid > 0), bid, mids)
+    return buy, sell
 
 
 def scan_buckets(
@@ -103,6 +130,8 @@ def scan_buckets(
     min_oi: int = 0,
     max_width: float | None = None,
     max_gap_steps: int = DEFAULT_MAX_GAP_STEPS,
+    svi_surface: Dict[int, Dict] | None = None,
+    pricing_mode: str = "mid",
 ):
     df = prep_chain(chain_df)
     asof = int(meta.asof_ts)
@@ -132,9 +161,20 @@ def scan_buckets(
             ivs = grp["mark_iv"].values
             s_vals = grp["underlying"].values
             qflags = grp["quality_flag"].values
+            spread_ratios = grp["spread_ratio"].values
             s = float(np.nanmean(s_vals)) if len(s_vals) else float("nan")
             iv = float(np.nanmean(ivs)) if len(ivs) else float("nan")
             t_years = max(((exp_ts - asof) / (1000 * 60 * 60 * 24)) / 365.0, 1e-6)
+
+            # SVI 逐行权价 IV（PoP 用）；无 ok 切片时回退到期均值 IV
+            iv_at = None
+            params = (svi_surface or {}).get(int(exp_ts))
+            if params is not None:
+                k_grid = np.log(strikes / max(s, 1e-9))
+                iv_grid = svi_iv(k_grid, params, t_years)
+                iv_at = lambda kb, _sg=strikes, _ig=iv_grid: float(np.interp(kb, _sg, _ig))
+
+            buy_arr, sell_arr = _buy_sell_arrays(grp, mids, pricing_mode)
 
             n = len(strikes)
             valid_mask = np.ones(n, dtype=bool)
@@ -153,7 +193,6 @@ def scan_buckets(
             for a in range(len(vi)):
                 i = vi[a]
                 k1 = float(strikes[i])
-                m1 = float(mids[i])
                 if kind == "CALL" and k1 < s:
                     continue
                 if kind == "PUT" and k1 > s:
@@ -169,27 +208,32 @@ def scan_buckets(
                     if kind == "PUT" and k2 > s:
                         continue
 
-                    m2 = float(mids[j])
-
+                    # 买腿取 buy 价、卖腿取 sell 价（conservative 时为可执行价）
                     if kind == "CALL":
-                        debit = _calc_vertical_metrics("CALL", "DEBIT", k1, k2, long_px=m1, short_px=m2, s=s, iv=iv, t_years=t_years)
-                        credit = _calc_vertical_metrics("CALL", "CREDIT", k1, k2, long_px=m2, short_px=m1, s=s, iv=iv, t_years=t_years)
+                        debit = _calc_vertical_metrics("CALL", "DEBIT", k1, k2, long_px=buy_arr[i], short_px=sell_arr[j], s=s, iv=iv, t_years=t_years, iv_at=iv_at)
+                        credit = _calc_vertical_metrics("CALL", "CREDIT", k1, k2, long_px=buy_arr[j], short_px=sell_arr[i], s=s, iv=iv, t_years=t_years, iv_at=iv_at)
                     else:
-                        debit = _calc_vertical_metrics("PUT", "DEBIT", k1, k2, long_px=m2, short_px=m1, s=s, iv=iv, t_years=t_years)
-                        credit = _calc_vertical_metrics("PUT", "CREDIT", k1, k2, long_px=m1, short_px=m2, s=s, iv=iv, t_years=t_years)
+                        debit = _calc_vertical_metrics("PUT", "DEBIT", k1, k2, long_px=buy_arr[j], short_px=sell_arr[i], s=s, iv=iv, t_years=t_years, iv_at=iv_at)
+                        credit = _calc_vertical_metrics("PUT", "CREDIT", k1, k2, long_px=buy_arr[i], short_px=sell_arr[j], s=s, iv=iv, t_years=t_years, iv_at=iv_at)
 
                     premium_usd_debit = abs(debit["premium"]) * s
                     premium_usd_credit = abs(credit["premium"]) * s
+                    spread_avg = float((spread_ratios[i] + spread_ratios[j]) / 2.0)
 
                     if premium_usd_debit >= MIN_PREMIUM_USD:
-                        legs_debit.append({"K1": k1, "K2": k2, **debit, "quality": "ok"})
+                        legs_debit.append({"K1": k1, "K2": k2, **debit, "quality": "ok", "spread_ratio_avg": spread_avg})
                     if premium_usd_credit >= MIN_PREMIUM_USD:
-                        legs_credit.append({"K1": k1, "K2": k2, **credit, "quality": "ok"})
+                        legs_credit.append({"K1": k1, "K2": k2, **credit, "quality": "ok", "spread_ratio_avg": spread_avg})
 
             def _rank(lst: List[Dict]):
                 lst = [x for x in lst if not math.isnan(x["odds"]) and x["odds"] != float("inf")]
-                top = heapq.nlargest(return_per_bucket, lst, key=lambda x: x["odds"])
-                bottom = heapq.nsmallest(return_per_bucket, lst, key=lambda x: x["odds"])
+                # 流动性惩罚：两腿平均点差越接近过滤上限，调整赔率越低（最多 -50%）
+                for x in lst:
+                    sr = x.get("spread_ratio_avg")
+                    penalty = 0.5 * min(sr / SPREAD_RATIO_MAX, 1.0) if sr is not None and math.isfinite(sr) else 0.0
+                    x["odds_adj"] = x["odds"] * (1.0 - penalty)
+                top = heapq.nlargest(return_per_bucket, lst, key=lambda x: x["odds_adj"])
+                bottom = heapq.nsmallest(return_per_bucket, lst, key=lambda x: x["odds_adj"])
                 return top, bottom
 
             top_d, bot_d = _rank(legs_debit)
@@ -222,6 +266,7 @@ def scan_buckets(
         "spot_price": spot_price,
         "dvol_index": meta.dvol_index,
         "tenor": tenor,
+        "pricing_mode": pricing_mode,
         "buckets": filtered,
     }
 
@@ -244,6 +289,8 @@ def scan_opinion_spreads(
     target_price: float,
     max_gap_steps: int = 8,
     return_count: int = 3,
+    svi_surface: Dict[int, Dict] | None = None,
+    pricing_mode: str = "mid",
 ):
     df = prep_chain(chain_df)
     asof = int(meta.asof_ts)
@@ -308,13 +355,23 @@ def scan_opinion_spreads(
         iv = float(np.nanmean(ivs)) if len(ivs) else float("nan")
         t_years = max(((exp_ts - asof) / (1000 * 60 * 60 * 24)) / 365.0, 1e-6)
 
+        iv_at = None
+        params = (svi_surface or {}).get(int(exp_ts))
+        if params is not None:
+            k_grid = np.log(strikes / max(s, 1e-9))
+            iv_grid = svi_iv(k_grid, params, t_years)
+            iv_at = lambda kb, _sg=strikes, _ig=iv_grid: float(np.interp(kb, _sg, _ig))
+
+        buy_arr, sell_arr = _buy_sell_arrays(grp, mids, pricing_mode)
+
         anchor_idx_arr = np.where(strikes == unified_anchor_strike)[0]
         if len(anchor_idx_arr) == 0:
             continue
 
         anchor_idx = int(anchor_idx_arr[0])
         anchor_strike = unified_anchor_strike
-        anchor_mid = float(mids[anchor_idx])
+        # 锚定腿价格按角色取价：up/not_up/not_down 锚为卖腿，down 锚为买腿
+        anchor_px = float(buy_arr[anchor_idx] if view == "down" else sell_arr[anchor_idx])
 
         if qflags[anchor_idx] in ("missing", "invalid"):
             continue
@@ -328,8 +385,8 @@ def scan_opinion_spreads(
                     continue
                 if qflags[i] in ("missing", "invalid"):
                     continue
-                m1 = float(mids[i])
-                metrics = _calc_vertical_metrics("CALL", "DEBIT", k1, anchor_strike, long_px=m1, short_px=anchor_mid, s=s, iv=iv, t_years=t_years)
+                m1 = float(buy_arr[i])
+                metrics = _calc_vertical_metrics("CALL", "DEBIT", k1, anchor_strike, long_px=m1, short_px=anchor_px, s=s, iv=iv, t_years=t_years, iv_at=iv_at)
                 premium_usd = abs(metrics["premium"]) * s
                 if premium_usd < MIN_PREMIUM_USD or math.isnan(metrics["odds"]) or metrics["odds"] == float("inf"):
                     continue
@@ -352,8 +409,8 @@ def scan_opinion_spreads(
                     continue
                 if qflags[i] in ("missing", "invalid"):
                     continue
-                m2 = float(mids[i])
-                metrics = _calc_vertical_metrics("PUT", "DEBIT", anchor_strike, k2, long_px=anchor_mid, short_px=m2, s=s, iv=iv, t_years=t_years)
+                m2 = float(sell_arr[i])
+                metrics = _calc_vertical_metrics("PUT", "DEBIT", anchor_strike, k2, long_px=anchor_px, short_px=m2, s=s, iv=iv, t_years=t_years, iv_at=iv_at)
                 premium_usd = abs(metrics["premium"]) * s
                 if premium_usd < MIN_PREMIUM_USD or math.isnan(metrics["odds"]) or metrics["odds"] == float("inf"):
                     continue
@@ -376,8 +433,8 @@ def scan_opinion_spreads(
                     continue
                 if qflags[i] in ("missing", "invalid"):
                     continue
-                m2 = float(mids[i])
-                metrics = _calc_vertical_metrics("CALL", "CREDIT", anchor_strike, k2, long_px=m2, short_px=anchor_mid, s=s, iv=iv, t_years=t_years)
+                m2 = float(buy_arr[i])
+                metrics = _calc_vertical_metrics("CALL", "CREDIT", anchor_strike, k2, long_px=m2, short_px=anchor_px, s=s, iv=iv, t_years=t_years, iv_at=iv_at)
                 premium_usd = abs(metrics["premium"]) * s
                 if premium_usd < MIN_PREMIUM_USD or math.isnan(metrics["odds"]) or metrics["odds"] == float("inf"):
                     continue
@@ -400,8 +457,8 @@ def scan_opinion_spreads(
                     continue
                 if qflags[i] in ("missing", "invalid"):
                     continue
-                m2 = float(mids[i])
-                metrics = _calc_vertical_metrics("PUT", "CREDIT", anchor_strike, k2, long_px=m2, short_px=anchor_mid, s=s, iv=iv, t_years=t_years)
+                m2 = float(buy_arr[i])
+                metrics = _calc_vertical_metrics("PUT", "CREDIT", anchor_strike, k2, long_px=m2, short_px=anchor_px, s=s, iv=iv, t_years=t_years, iv_at=iv_at)
                 premium_usd = abs(metrics["premium"]) * s
                 if premium_usd < MIN_PREMIUM_USD or math.isnan(metrics["odds"]) or metrics["odds"] == float("inf"):
                     continue

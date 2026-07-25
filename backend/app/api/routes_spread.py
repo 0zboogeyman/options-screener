@@ -7,6 +7,7 @@ from ..core.config import settings
 from ..core.ratelimit import limiter
 from ..services.loader import load_chain_for, get_latest_date
 from ..services.scanner import scan_buckets, scan_opinion_spreads
+from ..services.vol_history import load_svi_surface
 
 
 class ScanRequest(BaseModel):
@@ -18,6 +19,7 @@ class ScanRequest(BaseModel):
     min_oi: int | None = Field(default=0, ge=0)
     max_width: float | None = Field(default=None, gt=0, description="max K2-K1 width in underlying units")
     max_gap_steps: int = Field(default=10, ge=1, le=100, description="两腿之间允许的最大行权价步数")
+    pricing_mode: str = Field(default="mid", pattern=r"^(mid|conservative)$", description="mid=中间价；conservative=可执行价（买ask卖bid）")
 
 
 class OpinionRequest(BaseModel):
@@ -27,6 +29,7 @@ class OpinionRequest(BaseModel):
     target_price: float = Field(..., gt=0, description="Target price in USD")
     max_gap_steps: int = Field(default=8, ge=1, le=50, description="Max strike steps from anchor")
     return_per_bucket: int = Field(default=3, ge=1, le=50, description="Top N strategies to return")
+    pricing_mode: str = Field(default="mid", pattern=r"^(mid|conservative)$", description="mid=中间价；conservative=可执行价（买ask卖bid）")
 
 
 router = APIRouter()
@@ -49,6 +52,8 @@ def scan(request: Request, req: ScanRequest):
         min_oi=req.min_oi or 0,
         max_width=req.max_width,
         max_gap_steps=req.max_gap_steps,
+        svi_surface=load_svi_surface(req.date, req.base),
+        pricing_mode=req.pricing_mode,
     )
     return result
 
@@ -70,5 +75,7 @@ def opinion(request: Request, req: OpinionRequest):
         target_price=req.target_price,
         max_gap_steps=req.max_gap_steps,
         return_count=req.return_per_bucket,
+        svi_surface=load_svi_surface(latest_date, req.base),
+        pricing_mode=req.pricing_mode,
     )
     return result

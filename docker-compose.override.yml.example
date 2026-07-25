@@ -1,0 +1,66 @@
+# docker-compose.override.yml 模板
+#
+# 用途：在不动 docker-compose.yml（保持通用）的前提下，为本机定制覆盖配置。
+# Docker Compose 默认会自动加载 docker-compose.yml + docker-compose.override.yml 并合并。
+#
+# 使用方法：
+#   1. 复制本文件：cp docker-compose.override.yml.example docker-compose.override.yml
+#   2. 按需修改下方内容
+#   3. docker compose up -d 即可生效（无需 --build，除非改了镜像构建相关项）
+#
+# 注意：docker-compose.override.yml 已在 .gitignore 中，不会上传 GitHub。
+#       每台机器自己维护一份，互不影响。
+
+# ============================================================
+# 场景 1：接入外部反向代理网络（如 1Panel 的 Nginx Proxy Manager）
+# ============================================================
+# 当使用 NPM / Traefik 等容器化反代时，反代容器与本服务容器需在同一 Docker 网络
+# 才能按容器名互访。取消下方注释，把 <external-network-name> 改成实际网络名
+# （可用 `docker network ls` 查看），即可让本服务接入反代所在网络。
+#
+# services:
+#   app:
+#     networks:
+#       - default
+#       - <external-network-name>
+#
+# networks:
+#   <external-network-name>:
+#     external: true
+
+# ============================================================
+# 场景 2：调整资源限制（如 VPS 内存较小）
+# ============================================================
+# services:
+#   app:
+#     deploy:
+#       resources:
+#         limits:
+#           memory: 512M
+#           cpus: '0.5'
+
+# ============================================================
+# 场景 3：挂载本地目录用于调试
+# ============================================================
+# 注意：前端为静态导出产物（frontend/out），改前端代码需重新 npm run build。
+# services:
+#   app:
+#     volumes:
+#       - ./backend/app:/app/app:ro
+#       - ./frontend/out:/app/frontend/out:ro
+
+# ============================================================
+# 场景 4：运行期站点配置（统计代码 / 广告位）
+# ============================================================
+# 不用重新构建镜像即可注入 Umami 统计与广告代码。
+# 步骤：
+#   1. cp ops/site-config.example.js ops/site-override/site-config.js
+#   2. 按需填写该文件（Umami src/websiteId、AdSense client、广告 HTML/slot）
+#   3. 取消下方注释
+#   4. docker compose up -d；以后改配置保存文件+刷新页面即生效
+# 原理：目录挂载覆盖镜像内默认空配置 /app/frontend/out/override/；
+# 目录挂载可避免单文件 bind mount 的 inode 不同步坑（编辑器 rename 保存）。
+# services:
+#   app:
+#     volumes:
+#       - ./ops/site-override:/app/frontend/out/override:ro

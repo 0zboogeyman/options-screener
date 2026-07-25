@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import type { CCResult } from '../types/api';
+import { usePersistedState } from '../lib/usePersistedState';
 
 const API_BASE = '/api';
 
@@ -16,12 +17,12 @@ interface CCScannerProps {
 }
 
 export default function CCScanner({ onDataUpdate }: CCScannerProps) {
-  const [base, setBase] = useState<'BTC'|'ETH'>('BTC');
-  const [maxDte, setMaxDte] = useState('60');
-  const [maxDelta, setMaxDelta] = useState('0.30');
-  const [minOi, setMinOi] = useState('10');
-  const [maxSpreadBps, setMaxSpreadBps] = useState('1500');
-  const [positionSize, setPositionSize] = useState('1');
+  const [base, setBase] = usePersistedState<'BTC'|'ETH'>('cc.base', 'BTC');
+  const [maxDte, setMaxDte] = usePersistedState('cc.maxDte', '60');
+  const [maxDelta, setMaxDelta] = usePersistedState('cc.maxDelta', '0.30');
+  const [minOi, setMinOi] = usePersistedState('cc.minOi', '10');
+  const [maxSpreadBps, setMaxSpreadBps] = usePersistedState('cc.maxSpreadBps', '1500');
+  const [positionSize, setPositionSize] = usePersistedState('cc.positionSize', '1');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -71,8 +72,8 @@ export default function CCScanner({ onDataUpdate }: CCScannerProps) {
 
   return (
     <div className="scanner-section">
-      <h2 className="scanner-title">CC - 加钱卖货</h2>
-      <p className="scanner-description">策略说明：在持有现货基础上卖出看涨期权（Call），获取额外权利金收益</p>
+      <h2 className="scanner-title">高抛收租（备兑卖 Call · CC）</h2>
+      <p className="scanner-description">策略说明：持币备兑卖出看涨期权（Call）——涨至目标价则按溢价出货，没涨到则白收权利金</p>
 
       <div className="filter-grid filter-grid-3">
         <label className="filter-label">

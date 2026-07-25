@@ -58,6 +58,12 @@ data/parquet/
 # Docker
 docker-compose.override.yml
 
+# 运行期站点配置（含真实统计 ID / 广告代码，不进仓库；模板见 ops/site-config.example.js）
+ops/site-override/
+
+# WorkBuddy 工作区记忆（本地开发辅助，不进仓库）
+.workbuddy/
+
 # OS
 .DS_Store
 Thumbs.db

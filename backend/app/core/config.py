@@ -17,6 +17,12 @@ class Settings(BaseSettings):
 
     deribit_api_url: str = "https://www.deribit.com/api/v2"
 
+    # 前端静态导出目录（Next.js output:export 产物 out/）。
+    # 留空时按代码布局自动解析：仓库根/frontend/out 或容器内 /app/frontend/out。
+    frontend_dist: str = ""
+    # 子路径部署时的挂载前缀（对应前端构建期 NEXT_PUBLIC_BASE_PATH），如 "/options"。
+    frontend_base_path: str = ""
+
     # 生产环境必须通过 CORS_ORIGINS 显式声明具体域名；
     # 默认为空列表（拒绝一切跨域请求），同源部署经 Caddy 转发无需 CORS。
     cors_origins: List[str] = []
@@ -44,6 +50,16 @@ class Settings(BaseSettings):
     #   * ETL_SCHEDULE="off"        关闭调度，只跑首次启动的初始 ETL
     # 默认 08:05 UTC = 台北/北京时间 16:05（Deribit 每日 16:00 结算后 5 分钟抓数）
     etl_schedule: str = "08:05"
+
+    # 手动 ETL 触发（POST /api/etl/run）的管理口令。
+    # 配置后该端点必须带 X-Admin-Token 头匹配才放行；留空则放行（仅适合本地
+    # 开发）。公网部署务必设置，否则任何访客都能触发 ETL 烧 Deribit API 配额。
+    admin_token: str = ""
+
+    # Telegram Bot 推送（ETL 完成后自动推 top 策略 + 异常警报）。
+    # 两项都配置才启用；留空则静默跳过。
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
 
 
 settings = Settings()

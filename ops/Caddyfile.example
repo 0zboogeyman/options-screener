@@ -11,13 +11,6 @@ yourdomain.com {
         Referrer-Policy strict-origin-when-cross-origin
     }
 
-    # /api/* 转发到容器内 FastAPI（仅本机可见端口）
-    handle /api/* {
-        reverse_proxy 127.0.0.1:3115
-    }
-
-    # 其余路径转发到容器内 Next.js
-    handle {
-        reverse_proxy 127.0.0.1:3116
-    }
+    # 页面与 API 已由 FastAPI 同源托管（容器单端口），全部转发到同一上游
+    reverse_proxy 127.0.0.1:3116
 }

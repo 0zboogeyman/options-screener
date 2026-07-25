@@ -3,14 +3,18 @@ from __future__ import annotations
 import logging
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from .api.routes_meta import router as meta_router
+from .api.routes_etl import router as etl_router
+from .api.routes_multi_leg import router as multi_leg_router
 from .api.routes_spread import router as spread_router
 from .api.routes_single_leg import router as single_leg_router
 from .core.config import settings
@@ -33,6 +37,18 @@ def _cached_available_dates() -> list:
         _health_dates_cache["dates"] = list_available_dates()
         _health_dates_cache["ts"] = now
     return _health_dates_cache["dates"]
+
+
+def _frontend_dist() -> Path:
+    """前端静态导出目录。
+
+    仓库布局: backend/app/main.py -> <repo>/frontend/out
+    容器布局: /app/app/main.py     -> /app/frontend/out
+    可用 FRONTEND_DIST 环境变量显式覆盖。
+    """
+    if settings.frontend_dist:
+        return Path(settings.frontend_dist)
+    return Path(__file__).resolve().parent.parent.parent / "frontend" / "out"
 
 
 def create_app() -> FastAPI:
@@ -103,8 +119,21 @@ def create_app() -> FastAPI:
     app.include_router(meta_router, prefix="/api")
     app.include_router(spread_router, prefix="/api")
     app.include_router(single_leg_router, prefix="/api")
+    app.include_router(multi_leg_router, prefix="/api")
+    app.include_router(etl_router, prefix="/api")
 
-    logger.info("Application initialized with %d routers", 3)
+    # 前端静态导出（Next.js output:export）同源托管：
+    # API 路由先注册先匹配，"/" 挂载只兜底页面与静态资源，/api/* 不受影响。
+    # 目录不存在（如后端独立开发、前端尚未构建）时降级为纯 API 模式，不报错。
+    dist = _frontend_dist()
+    if dist.is_dir():
+        mount_path = settings.frontend_base_path or "/"
+        app.mount(mount_path, StaticFiles(directory=str(dist), html=True), name="frontend")
+        logger.info("Serving frontend static export from %s at %s", dist, mount_path)
+    else:
+        logger.warning("Frontend dist %s not found; running in API-only mode", dist)
+
+    logger.info("Application initialized with %d routers", 5)
     return app
 
 

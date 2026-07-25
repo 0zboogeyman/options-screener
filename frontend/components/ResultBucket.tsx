@@ -1,4 +1,5 @@
 import type { Bucket, ScanLeg } from '../types/api';
+import { quarterKelly } from '../lib/kelly';
 
 interface ResultBucketProps {
   bucket: Bucket;
@@ -35,6 +36,7 @@ export default function ResultBucket({ bucket, spotPrice }: ResultBucketProps) {
     const premiumUsd = it.premium * spotPrice;
     const maxProfitUsd = isDebit ? it.max_profit : (it.max_profit * spotPrice);
     const maxLossUsd = isDebit ? (it.max_loss * spotPrice) : it.max_loss;
+    const kelly = quarterKelly(it.pop, maxProfitUsd / Math.max(maxLossUsd, 1e-9));
 
     return (
       <tr>
@@ -44,6 +46,8 @@ export default function ResultBucket({ bucket, spotPrice }: ResultBucketProps) {
         <td>${formatNumber(maxProfitUsd, 2)}</td>
         <td>${formatNumber(maxLossUsd, 2)}</td>
         <td>{Number.isFinite(it.odds) ? it.odds.toFixed(1) : '—'}</td>
+        <td style={{ fontWeight: 'bold', color: kelly.zero ? '#dc3545' : 'inherit' }}
+          title="1/4 Kelly 建议仓位（占可用保证金）">{kelly.pct}</td>
       </tr>
     );
   };
@@ -65,6 +69,7 @@ export default function ResultBucket({ bucket, spotPrice }: ResultBucketProps) {
               <th>最大收益</th>
               <th>最大亏损</th>
               <th>赔率</th>
+              <th>Kelly <span className="help-icon" title="简化 Kelly 仓位建议：f* = p − q/b，显示 1/4 Kelly。&#10;p=胜率（SVI/RND），b=最大收益/最大亏损。&#10;仅供参考，非投资建议。">i</span></th>
             </tr>
           </thead>
           <tbody>

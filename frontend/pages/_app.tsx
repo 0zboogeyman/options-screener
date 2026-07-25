@@ -3,6 +3,8 @@ import Head from 'next/head';
 import { ThemeProvider } from '../components/ThemeContext';
 import ThemeToggle from '../components/ThemeToggle';
 import { ToastProvider } from '../components/Toast';
+import DisclaimerModal from '../components/DisclaimerModal';
+import SiteScripts from '../components/SiteScripts';
 import '../styles/globals.css';
 
 export default function MyApp({ Component, pageProps }: AppProps) {
@@ -14,6 +16,8 @@ export default function MyApp({ Component, pageProps }: AppProps) {
       <ToastProvider>
         <ThemeToggle />
         <Component {...pageProps} />
+        <DisclaimerModal />
+        <SiteScripts />
       </ToastProvider>
     </ThemeProvider>
   );

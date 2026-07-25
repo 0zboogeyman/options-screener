@@ -18,12 +18,64 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 from app.core.config import settings
 from app.core.logging import setup_logging
+from app.services.svi import fit_svi_slice
+from app.services.vol_history import append_svi_rows
 
 setup_logging(settings.log_level)
 logger = logging.getLogger(__name__)
 
 DATA_ROOT: Path = settings.data_root
 DERIBIT: str = settings.deribit_api_url
+
+
+# ---------------------------------------------------------------------------
+# 跨进程互斥锁：uvicorn（手动触发 /api/etl/run）与 etl-scheduler（定时触发）
+# 是两个进程，模块级标志防不住对方。文件锁做在 run_once 入口，保证同一
+# 时刻只有一个 ETL 在写 parquet 分区。fcntl 仅 POSIX；Windows 开发机退化为
+# msvcrt。拿不到锁即视为「已有 ETL 在跑」。
+# ---------------------------------------------------------------------------
+
+class _EtlLock:
+    """DATA_ROOT/.etl.lock 上的非阻塞排他文件锁。"""
+
+    def __init__(self) -> None:
+        self._fd = None
+
+    def acquire(self) -> bool:
+        DATA_ROOT.mkdir(parents=True, exist_ok=True)
+        fd = open(DATA_ROOT / ".etl.lock", "a+")
+        try:
+            if os.name == "nt":
+                import msvcrt
+                fd.seek(0)
+                msvcrt.locking(fd.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            fd.close()
+            return False
+        self._fd = fd
+        return True
+
+    def release(self) -> None:
+        if self._fd is None:
+            return
+        try:
+            if os.name == "nt":
+                import msvcrt
+                self._fd.seek(0)
+                msvcrt.locking(self._fd.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(self._fd, fcntl.LOCK_UN)
+        finally:
+            self._fd.close()
+            self._fd = None
+
+
+class EtlAlreadyRunningError(RuntimeError):
+    """另一进程（或本进程）的 ETL 正在运行。"""
 
 
 @retry(
@@ -81,7 +133,28 @@ async def fetch_index_price(client: httpx.AsyncClient, currency: str) -> float:
     return float(result.get("index_price", 0))
 
 
-async def run_once(date_str: str, bases: List[str]) -> None:
+async def run_once(date_str: str, bases: List[str], notify: bool = False) -> None:
+    lock = _EtlLock()
+    if not lock.acquire():
+        logger.warning("ETL skipped: another run is in progress (date=%s)", date_str)
+        raise EtlAlreadyRunningError("another ETL run is in progress")
+    try:
+        await _run_once_locked(date_str, bases)
+    finally:
+        lock.release()
+
+    # Telegram 推送（仅定时触发带 notify=True；手动刷新不打扰、避免同日重复推）。
+    # 推送失败绝不反哺异常——通知是附属能力，不能影响 ETL 结果语义。
+    if notify:
+        try:
+            from app.services import notify as notify_mod
+            await notify_mod.push_daily_picks(date_str, bases)
+            await notify_mod.check_dvol_jump(date_str, bases)
+        except Exception:
+            logger.error("notify step skipped", exc_info=True)
+
+
+async def _run_once_locked(date_str: str, bases: List[str]) -> None:
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
 
     now_utc = datetime.now(tz=timezone.utc)
@@ -222,6 +295,41 @@ async def run_once(date_str: str, bases: List[str]) -> None:
         manifest["expiries"][base] = sorted(list(exp_map.keys()))
         total_rows += int(df.shape[0])
 
+        # SVI 拟合：逐到期切片（dte>=3 天），结果落 vol/history.parquet。
+        # 该文件独立于 dt=* 分区，不受 backup_retention_days 清理影响；
+        # 同日重复跑 ETL 按 (date, base, expiry_ts) 幂等覆盖。
+        # 注：book_summary 的 volume / volume_usd 字段已随 df 全量落盘，无需另存。
+        svi_rows = []
+        for exp_ts, grp in exp_map.items():
+            dte_days = (exp_ts - asof_ts) / (1000 * 60 * 60 * 24)
+            if dte_days < 3:
+                continue
+            underlying_vals = pd.to_numeric(grp["underlying"], errors="coerce").dropna()
+            if underlying_vals.empty:
+                continue
+            fit = fit_svi_slice(
+                strikes=grp["strike"].to_numpy(dtype=float),
+                ivs=pd.to_numeric(grp["mark_iv"], errors="coerce").to_numpy(dtype=float),
+                ois=pd.to_numeric(grp["oi"], errors="coerce").to_numpy(dtype=float),
+                forward=float(underlying_vals.median()),
+                t_years=dte_days / 365.0,
+            )
+            svi_rows.append({
+                "date": date_str,
+                "asof_ts": asof_ts,
+                "base": base,
+                "expiry_ts": int(exp_ts),
+                "dte": round(dte_days, 2),
+                **fit,
+            })
+        if svi_rows:
+            try:
+                append_svi_rows(svi_rows)
+                ok_n = sum(1 for r in svi_rows if r["quality"] == "ok")
+                logger.info("SVI fit base=%s slices=%d ok=%d", base, len(svi_rows), ok_n)
+            except Exception:
+                logger.error("Failed to append SVI rows base=%s", base, exc_info=True)
+
     manifest["rows"] = total_rows
     tmp_manifest = dt_dir / "manifest.json.tmp"
     tmp_manifest.write_text(json.dumps(manifest, indent=2))
@@ -229,6 +337,19 @@ async def run_once(date_str: str, bases: List[str]) -> None:
     logger.info("ETL complete rows=%d bases=%s", total_rows, bases)
 
     cleanup_old_partitions(settings.backup_retention_days)
+
+    # DVOL 日更：顺带回填最近 7 天（按 (base, ts) 幂等去重），保持 IVP 序列新鲜。
+    # 全量历史回填由 scripts/backfill_dvol.py 一次性执行。
+    try:
+        from scripts.backfill_dvol import backfill_base
+        async with httpx.AsyncClient() as client:
+            for base in bases:
+                try:
+                    await backfill_base(client, base, days=7)
+                except Exception:
+                    logger.error("DVOL daily update failed for %s", base, exc_info=True)
+    except Exception:
+        logger.error("DVOL daily update skipped", exc_info=True)
 
 
 def cleanup_old_partitions(keep_days: int) -> None:

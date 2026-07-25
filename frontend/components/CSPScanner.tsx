@@ -1,6 +1,8 @@
 import { useState } from 'react';
 
 import type { CSPResult } from '../types/api';
+import { quarterKelly } from '../lib/kelly';
+import { usePersistedState } from '../lib/usePersistedState';
 
 const API_BASE = '/api';
 
@@ -16,12 +18,12 @@ interface CSPScannerProps {
 }
 
 export default function CSPScanner({ onDataUpdate }: CSPScannerProps) {
-  const [base, setBase] = useState<'BTC'|'ETH'>('BTC');
-  const [maxDte, setMaxDte] = useState('60');
-  const [maxDelta, setMaxDelta] = useState('0.30');
-  const [minOi, setMinOi] = useState('10');
-  const [maxSpreadBps, setMaxSpreadBps] = useState('1500');
-  const [availableCash, setAvailableCash] = useState('120000');
+  const [base, setBase] = usePersistedState<'BTC'|'ETH'>('csp.base', 'BTC');
+  const [maxDte, setMaxDte] = usePersistedState('csp.maxDte', '60');
+  const [maxDelta, setMaxDelta] = usePersistedState('csp.maxDelta', '0.30');
+  const [minOi, setMinOi] = usePersistedState('csp.minOi', '10');
+  const [maxSpreadBps, setMaxSpreadBps] = usePersistedState('csp.maxSpreadBps', '1500');
+  const [availableCash, setAvailableCash] = usePersistedState('csp.availableCash', '120000');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -71,8 +73,8 @@ export default function CSPScanner({ onDataUpdate }: CSPScannerProps) {
 
   return (
     <div className="scanner-section">
-      <h2 className="scanner-title">CSP - 打折买币</h2>
-      <p className="scanner-description">策略说明：卖出看跌期权（Put），目标以折扣价格接货或赚取权利金</p>
+      <h2 className="scanner-title">低吸收租（担保卖 Put · CSP）</h2>
+      <p className="scanner-description">策略说明：现金担保卖出看跌期权（Put）——跌至目标价则按折扣价接币，没跌到则白收权利金</p>
 
       <div className="filter-grid filter-grid-3">
         <label className="filter-label">
@@ -131,6 +133,9 @@ export default function CSPScanner({ onDataUpdate }: CSPScannerProps) {
                   <th className="align-right">APR</th>
                   <th className="align-right">行权概率</th>
                   <th className="align-right">持仓量</th>
+                  <th className="align-right">
+                    Kelly <span className="help-icon" title="简化 Kelly 仓位建议：f* = p − q/b，显示 1/4 Kelly。&#10;p=1−行权概率，b=权利金/(行权价−权利金)（极端归零口径）。&#10;仅供参考，非投资建议。">i</span>
+                  </th>
                   <th className="align-right">得分</th>
                 </tr>
               </thead>
@@ -155,6 +160,10 @@ export default function CSPScanner({ onDataUpdate }: CSPScannerProps) {
                     </td>
                     <td className="align-right">{(c.assign_prob * 100).toFixed(1)}%</td>
                     <td className="align-right">{formatNumber(c.oi, 0)}</td>
+                    <td className="align-right" style={{ fontWeight: 'bold', color: quarterKelly(1 - c.assign_prob, c.premium / Math.max(c.strike - c.premium, 1)).zero ? '#dc3545' : 'inherit' }}
+                      title="1/4 Kelly 建议仓位（占可用保证金）">
+                      {quarterKelly(1 - c.assign_prob, c.premium / Math.max(c.strike - c.premium, 1)).pct}
+                    </td>
                     <td className="align-right">
                       <span className={`score-badge ${c.score >= 70 ? 'high' : c.score >= 50 ? 'medium' : 'low'}`}>
                         {c.score.toFixed(0)}

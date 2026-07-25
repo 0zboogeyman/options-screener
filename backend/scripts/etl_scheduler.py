@@ -100,9 +100,14 @@ def main() -> int:
         date_str = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
         logger.info("scheduler firing ETL for date=%s", date_str)
         try:
-            asyncio.run(etl_daily.run_once(date_str, bases=settings.etl_bases))
-        except Exception:  # noqa: BLE001
+            asyncio.run(etl_daily.run_once(date_str, bases=settings.etl_bases, notify=True))
+        except Exception as exc:  # noqa: BLE001
             logger.exception("scheduled ETL failed; will retry next cycle")
+            try:
+                from app.services import notify as notify_mod
+                asyncio.run(notify_mod.alert_etl_failure(str(exc)))
+            except Exception:
+                logger.warning("failure alert skipped", exc_info=True)
     return 0
 
 

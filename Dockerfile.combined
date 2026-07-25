@@ -2,25 +2,26 @@
 # =============================================================================
 # Options Screener - 单容器镜像（自包含项目根）
 # -----------------------------------------------------------------------------
-# 将原 backend(FastAPI/uvicorn :8000) 与 frontend(Next.js standalone :3000)
-# 两个服务合并进一个容器，由 supervisord 托管。应用源代码不做任何修改，
-# 构建步骤与原 backend/Dockerfile、frontend/Dockerfile 等价。
+# 前端为 Next.js 静态导出（output:export，纯 HTML/JS/CSS），
+# 由 FastAPI StaticFiles 同源托管；容器内只有 uvicorn 一个 Web 进程，
+# 无 Node.js 运行时。进程托管：supervisord（uvicorn + etl-scheduler）。
 #
 # 构建上下文即本目录（项目根），所有 COPY 路径均为自引用。
 #
 # 对外契约：
-#   * /api/*       -> uvicorn (FastAPI)            容器端口 8000
-#   * /            -> node    (Next.js standalone) 容器端口 3000
-#   * /api/health  -> 后端健康检查端点
+#   * /            -> uvicorn (FastAPI StaticFiles)  容器端口 8000
+#   * /api/*       -> uvicorn (FastAPI 路由)         容器端口 8000
+#   * /api/health  -> 健康检查端点
 # 首次启动自动 ETL：沿用 backend/entrypoint.sh。
 # =============================================================================
 
-# ---- Stage 1: 构建 Next.js standalone 前端 -----------------------------
+# ---- Stage 1: 构建 Next.js 静态导出前端 ---------------------------------
 FROM node:20-alpine AS frontend-build
 WORKDIR /build
 ENV NEXT_TELEMETRY_DISABLED=1
 # basePath 默认空，IP:port 根路径即可访问；如需子路径部署，
-# 在 docker-compose.yml build.args 注入 NEXT_PUBLIC_BASE_PATH=/your-prefix。
+# 在 docker-compose.yml build.args 注入 NEXT_PUBLIC_BASE_PATH=/your-prefix，
+# 同时在 .env 设置 FRONTEND_BASE_PATH=/your-prefix 供 FastAPI 挂载。
 ARG NEXT_PUBLIC_BASE_PATH=
 ENV NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH}
 COPY frontend/package.json frontend/package-lock.json* ./
@@ -40,31 +41,20 @@ RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install --upgrade pip \
     && /opt/venv/bin/pip install -r /app/requirements.txt
 
-# ---- Stage 3: 合并运行时 ----------------------------------------------
+# ---- Stage 3: 合并运行时（无 Node.js） ----------------------------------
 FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/opt/venv/bin:$PATH" \
-    NODE_ENV=production \
-    PORT=3000 \
-    HOSTNAME=0.0.0.0
+    PATH="/opt/venv/bin:$PATH"
 
 # 运行时系统依赖：
 #   * curl       - 健康检查使用
-#   * supervisor - 进程管理器（同时运行 uvicorn + node）
-#   * node 20    - Next.js standalone 运行时（通过 NodeSource 安装）
+#   * supervisor - 进程管理器（uvicorn + etl-scheduler）
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl ca-certificates gnupg supervisor \
-    && mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
-       | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
-    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" \
-       > /etc/apt/sources.list.d/nodesource.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends nodejs \
+        curl ca-certificates supervisor \
     && rm -rf /var/lib/apt/lists/*
 
-# 两进程共用的非 root 用户。
+# 进程共用的非 root 用户。
 RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser
 
 # 后端：venv + 应用包 + ETL 脚本
@@ -72,10 +62,8 @@ COPY --from=backend-build /opt/venv /opt/venv
 COPY backend/app /app/app
 COPY backend/scripts /app/scripts
 
-# 前端：Next.js standalone 服务端及其静态资源
-COPY --from=frontend-build --chown=appuser:appuser /build/.next/standalone /app/frontend
-COPY --from=frontend-build --chown=appuser:appuser /build/.next/static /app/frontend/.next/static
-COPY --from=frontend-build --chown=appuser:appuser /build/public /app/frontend/public
+# 前端：静态导出产物（含 _next/static 与 public 资源），FastAPI 直接托管
+COPY --from=frontend-build --chown=appuser:appuser /build/out /app/frontend/out
 
 # 保留后端入口（数据目录为空时自动 ETL）
 COPY backend/entrypoint.sh /entrypoint.sh
@@ -90,7 +78,7 @@ RUN mkdir -p /app/data && chown -R appuser:appuser /app /app/frontend
 USER appuser
 WORKDIR /app
 
-EXPOSE 8000 3000
+EXPOSE 8000
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["supervisord", "-c", "/etc/supervisor/supervisord.conf", "-n"]

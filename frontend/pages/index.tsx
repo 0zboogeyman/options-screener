@@ -4,7 +4,14 @@ import type { DatesResp, ExpiriesResp, ScanResp, OpinionResult } from '../types/
 import ResultBucket from '../components/ResultBucket';
 import CSPScanner from '../components/CSPScanner';
 import CCScanner from '../components/CCScanner';
+import IronCondorScanner from '../components/IronCondorScanner';
+import StrangleScanner from '../components/StrangleScanner';
+import CalendarScanner from '../components/CalendarScanner';
+import VolPanel from '../components/VolPanel';
+import EtlRefreshButton from '../components/EtlRefreshButton';
+import AdSlot from '../components/AdSlot';
 import { useToast } from '../components/Toast';
+import { usePersistedState } from '../lib/usePersistedState';
 
 const API_BASE = '/api';
 
@@ -134,9 +141,9 @@ function findWeeklyExpiry(expiries: number[]): number {
 
 export default function Home() {
   const { showToast } = useToast();
-  const [activeTab, setActiveTab] = useState<'opinion'|'expiry'|'csp'|'cc'>('opinion');
+  const [activeTab, setActiveTab] = usePersistedState<'opinion'|'expiry'|'csp'|'cc'|'ironcondor'|'strangle'|'calendar'|'vol'>('home.activeTab', 'opinion');
   const [dates, setDates] = useState<string[]>([]);
-  const [base, setBase] = useState<'BTC'|'ETH'>('BTC');
+  const [base, setBase] = usePersistedState<'BTC'|'ETH'>('home.base', 'BTC');
   const [date, setDate] = useState<string>('');
   const [expiries, setExpiries] = useState<number[]>([]);
   const [selectedExpiry, setSelectedExpiry] = useState<number>(0);
@@ -150,8 +157,8 @@ export default function Home() {
     dvol_index?: number;
   }>({});
 
-  const [opinionHorizon, setOpinionHorizon] = useState<'short'|'mid'|'long'>('mid');
-  const [opinionView, setOpinionView] = useState<'up'|'down'|'not_up'|'not_down'>('up');
+  const [opinionHorizon, setOpinionHorizon] = usePersistedState<'short'|'mid'|'long'>('home.opinionHorizon', 'mid');
+  const [opinionView, setOpinionView] = usePersistedState<'up'|'down'|'not_up'|'not_down'>('home.opinionView', 'up');
   const [opinionTarget, setOpinionTarget] = useState<string>('150');
   const [opinionResult, setOpinionResult] = useState<OpinionResult | null>(null);
 
@@ -249,6 +256,32 @@ export default function Home() {
     return () => ctrl.abort();
   }, [date, base, selectedExpiry]);
 
+  /** ETL 手动刷新完成后：重拉日期/元信息；同日更新（date 字符串不变）时手动重扫 */
+  const handleEtlRefreshed = async () => {
+    try {
+      const datesResp = await fetch(`${API_BASE}/meta/dates`);
+      const datesData: DatesResp = await datesResp.json();
+      const ds = datesData.dates || [];
+      setDates(ds);
+      const latest = ds[ds.length - 1];
+      if (!latest) return;
+      const asofResp = await fetch(`${API_BASE}/meta/asof?base=${base}&date=${latest}`);
+      if (asofResp.ok) {
+        const asofData = await asofResp.json();
+        setGlobalData({
+          asof_ts: asofData.asof_ts,
+          spot_price: asofData.spot_price ?? undefined,
+          dvol_index: asofData.dvol_index ?? undefined,
+        });
+      }
+      if (latest !== date) {
+        setDate(latest);   // 触发 useEffect 链自动重扫
+      } else if (activeTab === 'expiry' && selectedExpiry) {
+        doScan();          // 同日更新：date 不变，手动重扫
+      }
+    } catch { /* 网络异常时静默——toast 已由按钮组件提示 */ }
+  };
+
   const doOpinionScan = async () => {
     setLoading(true); setError(''); setOpinionResult(null);
 
@@ -309,6 +342,7 @@ export default function Home() {
                 <span className="value dvol">{globalData.dvol_index.toFixed(2)}%</span>
               </div>
             )}
+            <EtlRefreshButton onRefreshed={handleEtlRefreshed} />
           </div>
         </div>
       )}
@@ -324,11 +358,27 @@ export default function Home() {
         </button>
         <button className={`tab-button ${activeTab === 'cc' ? 'active' : ''}`} onClick={() => setActiveTab('cc')}>
           <span className="tab-icon">📈</span>
-          <span>卖币</span>
+          <span>高抛收租</span>
         </button>
         <button className={`tab-button ${activeTab === 'csp' ? 'active' : ''}`} onClick={() => setActiveTab('csp')}>
           <span className="tab-icon">💰</span>
-          <span>买币</span>
+          <span>低吸收租</span>
+        </button>
+        <button className={`tab-button ${activeTab === 'ironcondor' ? 'active' : ''}`} onClick={() => setActiveTab('ironcondor')}>
+          <span className="tab-icon">🦅</span>
+          <span>铁秃鹰</span>
+        </button>
+        <button className={`tab-button ${activeTab === 'strangle' ? 'active' : ''}`} onClick={() => setActiveTab('strangle')}>
+          <span className="tab-icon">⚡</span>
+          <span>宽跨式</span>
+        </button>
+        <button className={`tab-button ${activeTab === 'calendar' ? 'active' : ''}`} onClick={() => setActiveTab('calendar')}>
+          <span className="tab-icon">📅</span>
+          <span>日历价差</span>
+        </button>
+        <button className={`tab-button ${activeTab === 'vol' ? 'active' : ''}`} onClick={() => setActiveTab('vol')}>
+          <span className="tab-icon">📉</span>
+          <span>波动率</span>
         </button>
       </div>
 
@@ -336,6 +386,14 @@ export default function Home() {
         <CSPScanner onDataUpdate={setGlobalData} />
       ) : activeTab === 'cc' ? (
         <CCScanner onDataUpdate={setGlobalData} />
+      ) : activeTab === 'ironcondor' ? (
+        <IronCondorScanner onDataUpdate={setGlobalData} />
+      ) : activeTab === 'strangle' ? (
+        <StrangleScanner onDataUpdate={setGlobalData} />
+      ) : activeTab === 'calendar' ? (
+        <CalendarScanner onDataUpdate={setGlobalData} />
+      ) : activeTab === 'vol' ? (
+        <VolPanel />
       ) : activeTab === 'opinion' ? (
         <>
           <div className="filter-grid filter-grid-4">
@@ -425,6 +483,8 @@ export default function Home() {
           )}
         </>
       )}
+
+      <AdSlot id="ad-footer-top" />
 
       <div className="footer">
         <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>仅教育用途，非投资建议，数据来源于 Deribit</div>

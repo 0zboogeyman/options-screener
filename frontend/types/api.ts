@@ -119,3 +119,176 @@ export interface OpinionItem {
   max_loss: number;
   odds: number;
 }
+
+// ---------------------------------------------------------------------------
+// 多腿策略类型
+// ---------------------------------------------------------------------------
+
+export interface Leg {
+  instrument: string;
+  kind: string;
+  side: string;
+  strike: number;
+  price: number;
+  delta: number;
+  iv: number;
+  oi: number;
+  spread_bps: number;
+  t_years?: number;
+}
+
+export interface Greeks {
+  net_delta: number;
+  net_vega_usd: number;
+  net_theta_usd: number;
+}
+
+export interface IronCondorCandidate {
+  expiry_date: string;
+  expiry_ts: number;
+  dte: number;
+  legs: Leg[];
+  strikes: number[];
+  credit: number;
+  credit_usd: number;
+  max_loss_usd: number;
+  breakeven_lo: number;
+  breakeven_hi: number;
+  pop: number;
+  roi_on_max_loss: number;
+  apr_on_max_loss: number;
+  im_standard_usd: number;
+  liquidity_score: number;
+  ivp_score: number;
+  greeks: Greeks;
+  score: number;
+}
+
+export interface IronCondorResult {
+  asof_date: string;
+  asof_ts: number;
+  base: string;
+  spot_price: number;
+  dvol_index?: number;
+  strategy: string;
+  ivp?: number | null;
+  filters: Record<string, unknown>;
+  candidates: IronCondorCandidate[];
+}
+
+export interface StrangleLongItem {
+  expiry_date: string;
+  expiry_ts: number;
+  dte: number;
+  legs: Leg[];
+  strikes: number[];
+  cost: number;
+  cost_usd: number;
+  breakeven_lo: number;
+  breakeven_hi: number;
+  move_required_pct: number;
+  pop_profit: number;
+  cost_ratio: number;
+  vega_per_dollar: number;
+  greeks: Greeks;
+  liquidity_score: number;
+  score: number;
+}
+
+export interface StrangleShortItem {
+  expiry_date: string;
+  expiry_ts: number;
+  dte: number;
+  legs: Leg[];
+  strikes: number[];
+  credit: number;
+  credit_usd: number;
+  breakeven_lo: number;
+  breakeven_hi: number;
+  pop: number;
+  im_standard_usd: number;
+  apr_on_im: number | null;
+  tail_loss_est_usd: number;
+  greeks: Greeks;
+  liquidity_score: number;
+  ivp_score: number;
+  risk_warning: string;
+  score: number;
+}
+
+export interface StrangleResult {
+  asof_date: string;
+  asof_ts: number;
+  base: string;
+  spot_price: number;
+  dvol_index?: number;
+  strategy: string;
+  ivp?: number | null;
+  filters: Record<string, unknown>;
+  long: StrangleLongItem[];
+  short: StrangleShortItem[];
+}
+
+export interface CalendarCandidate {
+  expiry_near: string;
+  expiry_far: string;
+  expiry_near_ts: number;
+  expiry_far_ts: number;
+  dte_near: number;
+  dte_far: number;
+  kind: string;
+  strike: number;
+  legs: Leg[];
+  debit: number;
+  debit_usd: number;
+  atm_iv_near: number;
+  atm_iv_far: number;
+  iv_slope: number;
+  iv_slope_ratio: number;
+  net_theta_usd: number;
+  theta_apr: number | null;
+  net_vega_usd: number;
+  debit_ratio: number;
+  profit_zone: {
+    breakeven_lo: number | null;
+    breakeven_hi: number | null;
+    max_profit_est: number;
+    max_profit_spot: number;
+  };
+  liquidity_score: number;
+  score: number;
+}
+
+export interface CalendarResult {
+  asof_date: string;
+  asof_ts: number;
+  base: string;
+  spot_price: number;
+  dvol_index?: number;
+  strategy: string;
+  ivp?: number | null;
+  filters: Record<string, unknown>;
+  candidates: CalendarCandidate[];
+}
+
+export interface VolPanelData {
+  base: string;
+  date: string;
+  dvol: number | null;
+  ivp: number | null;
+  ivr: number | null;
+  days_available: number;
+  term_structure: {
+    expiry_ts: number;
+    expiry_date: string;
+    dte: number;
+    atm_iv: number | null;
+    rr25: number | null;
+    bf25: number | null;
+  }[];
+  dvol_history: {
+    ts: number;
+    date: string;
+    close: number | null;
+  }[];
+}
