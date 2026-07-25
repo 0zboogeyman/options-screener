@@ -32,14 +32,11 @@ services:
       # named volume：docker 自动管理属主，消除部署时权限踩坑。
       - options-screener-data:/app/data
     ports:
-      # 前端页面：IP+端口直连，端口由 .env 的 PUBLIC_PORT 控制（默认 3116）。
-      # 经反向代理绑域名时，把 PUBLIC_PORT 改为 "127.0.0.1:3116:3000"。
+      # 前端页面 + API（FastAPI 同源托管）：端口由 .env 的 PUBLIC_PORT 控制（默认 3116）。
+      # 经反向代理绑域名时，把 PUBLIC_PORT 改为 "127.0.0.1:3116"。
       - "${PUBLIC_PORT:-3116}:3000"
-      # 后端 API：仅本机可见，供 Caddy/Nginx 反代 /api/* 使用。
-      # IP+端口直连场景不需要它，但保留无害（绑 127.0.0.1 不对外）。
-      - "127.0.0.1:3115:8000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
