@@ -287,7 +287,7 @@ export default function Home() {
   return (
     <div className="app-container">
       <div className="header">
-        <h1>期权策略推荐</h1>
+        <h1>BTC/ETH期权策略扫描</h1>
       </div>
 
       {globalData.asof_ts && (
