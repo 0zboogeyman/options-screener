@@ -38,9 +38,6 @@ services:
       # 后端 API：仅本机可见，供 Caddy/Nginx 反代 /api/* 使用。
       # IP+端口直连场景不需要它，但保留无害（绑 127.0.0.1 不对外）。
       - "127.0.0.1:3115:8000"
-    networks:
-      - default
-      - 1panel-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
@@ -58,7 +55,3 @@ services:
 volumes:
   options-screener-data:
     driver: local
-
-networks:
-  1panel-network:
-    external: true
