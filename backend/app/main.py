@@ -45,10 +45,21 @@ def _frontend_dist() -> Path:
     仓库布局: backend/app/main.py -> <repo>/frontend/out
     容器布局: /app/app/main.py     -> /app/frontend/out
     可用 FRONTEND_DIST 环境变量显式覆盖。
+
+    注：容器内 main.py 位于 /app/app/main.py，三层 parent 到根目录 /，
+    与仓库布局（backend/app/main.py 三层 parent 到 repo 根）层级不同，
+    因此显式列出两个候选路径，返回首个存在的目录。
     """
     if settings.frontend_dist:
         return Path(settings.frontend_dist)
-    return Path(__file__).resolve().parent.parent.parent / "frontend" / "out"
+    candidates = [
+        Path(__file__).resolve().parent.parent.parent / "frontend" / "out",  # 仓库布局
+        Path("/app/frontend/out"),  # 容器布局
+    ]
+    for c in candidates:
+        if c.is_dir():
+            return c
+    return candidates[0]  # 都不存在时返回仓库布局路径（触发 API-only 警告）
 
 
 def create_app() -> FastAPI:
