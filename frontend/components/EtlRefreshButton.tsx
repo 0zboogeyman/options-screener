@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useToast } from './Toast';
 
@@ -27,6 +28,7 @@ interface Props {
 
 export default function EtlRefreshButton({ onRefreshed }: Props) {
   const { showToast } = useToast();
+  const { t } = useTranslation();
   const [token, setToken] = useState('');
   const [running, setRunning] = useState(false);
 
@@ -48,9 +50,9 @@ export default function EtlRefreshButton({ onRefreshed }: Props) {
           clearInterval(timer);
           setRunning(false);
           if (s.last_error) {
-            showToast(`数据更新失败：${s.last_error}`, 'error');
+            showToast(t('etl.failed', { error: s.last_error }), 'error');
           } else {
-            showToast('数据已更新', 'success');
+            showToast(t('etl.success'), 'success');
             onRefreshed?.();
           }
         }
@@ -68,13 +70,13 @@ export default function EtlRefreshButton({ onRefreshed }: Props) {
         headers: { 'X-Admin-Token': token },
       });
       if (resp.status === 401) {
-        showToast('管理口令无效，请通过 ?admin=口令 重新进入', 'error');
+        showToast(t('etl.invalidToken'), 'error');
         localStorage.removeItem(TOKEN_KEY);
         setToken('');
         return;
       }
       if (resp.status === 409) {
-        showToast('已有更新任务在运行中', 'warning');
+        showToast(t('etl.conflict'), 'warning');
         setRunning(true);  // 接上现有任务的轮询
         return;
       }
@@ -104,7 +106,7 @@ export default function EtlRefreshButton({ onRefreshed }: Props) {
         whiteSpace: 'nowrap',
       }}
     >
-      {running ? '更新中…（约1-3分钟）' : '更新数据'}
+      {running ? t('etl.running') : t('etl.refresh')}
     </button>
   );
 }

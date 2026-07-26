@@ -8,6 +8,8 @@
     手动触发 /api/etl/run 不推送（用户就在页面上），也避免同日重复推送。
   * 全部网络异常静默吞掉——推送失败绝不能影响 ETL 主流程。
 
+推送语言由 settings.telegram_lang 控制（zh-CN / zh-TW / en）。
+
 Telegram Bot API：POST https://api.telegram.org/bot<token>/sendMessage
 （纯文本发送，不用 parse_mode，避免 Markdown 转义坑）。
 """
@@ -26,6 +28,90 @@ _API_BASE = "https://api.telegram.org"
 _TIMEOUT = 15.0
 # DVOL 日环比跳变超过该比例触发警报
 _DVOL_JUMP_ALERT = 0.20
+
+# ---------------------------------------------------------------------------
+# 多语言文案表
+# ---------------------------------------------------------------------------
+_T: Dict[str, Dict[str, str]] = {
+    "daily_picks": {
+        "zh-CN": "每日策略精选",
+        "zh-TW": "每日策略精選",
+        "en": "Daily Strategy Picks",
+    },
+    "spot": {
+        "zh-CN": "现货",
+        "zh-TW": "現貨",
+        "en": "Spot",
+    },
+    "iron_condor": {
+        "zh-CN": "铁秃鹰",
+        "zh-TW": "鐵禿鷹",
+        "en": "Iron Condor",
+    },
+    "strangle_short": {
+        "zh-CN": "宽跨 Short（理论亏损无限，注意仓位）",
+        "zh-TW": "寬跨 Short（理論虧損無限，注意倉位）",
+        "en": "Strangle Short (unlimited loss, mind size)",
+    },
+    "csp": {
+        "zh-CN": "低吸收租（CSP）",
+        "zh-TW": "低吸收租（CSP）",
+        "en": "Cash-Put (CSP)",
+    },
+    "disclaimer": {
+        "zh-CN": "仅教育参考，非投资建议",
+        "zh-TW": "僅教育參考，非投資建議",
+        "en": "Educational only, not investment advice",
+    },
+    "win_rate": {
+        "zh-CN": "胜率",
+        "zh-TW": "勝率",
+        "en": "Win",
+    },
+    "credit": {
+        "zh-CN": "收",
+        "zh-TW": "收",
+        "en": "Credit",
+    },
+    "score": {
+        "zh-CN": "评分",
+        "zh-TW": "評分",
+        "en": "Score",
+    },
+    "discount": {
+        "zh-CN": "折扣",
+        "zh-TW": "折扣",
+        "en": "Disc",
+    },
+    "tail": {
+        "zh-CN": "尾部",
+        "zh-TW": "尾部",
+        "en": "Tail",
+    },
+    "etl_failed": {
+        "zh-CN": "⚠️ ETL 执行失败，今日数据可能未更新：",
+        "zh-TW": "⚠️ ETL 執行失敗，今日數據可能未更新：",
+        "en": "⚠️ ETL failed, today's data may be stale:",
+    },
+    "dvol_spike": {
+        "zh-CN": "飙升",
+        "zh-TW": "飆升",
+        "en": "spiked",
+    },
+    "dvol_drop": {
+        "zh-CN": "骤降",
+        "zh-TW": "驟降",
+        "en": "dropped",
+    },
+}
+
+
+def _t(key: str) -> str:
+    """按 settings.telegram_lang 取文案，回退 zh-CN。"""
+    entry = _T.get(key)
+    if not entry:
+        return key
+    return entry.get(settings.telegram_lang, entry["zh-CN"])
 
 
 def _enabled() -> bool:
@@ -62,8 +148,8 @@ def _fmt_ic(c: Dict, i: int) -> str:
     ks = "/".join(f"{k:,.0f}" for k in c["strikes"])
     return (
         f"{i}. {c['expiry_date']} ({c['dte']:.0f}d) {ks}\n"
-        f"   胜率 {c['pop'] * 100:.0f}% · APR {c['apr_on_max_loss'] * 100:.0f}% "
-        f"· 收 ${c['credit_usd']:.0f} · 评分 {c['score']:.0f}"
+        f"   {_t('win_rate')} {c['pop'] * 100:.0f}% · APR {c['apr_on_max_loss'] * 100:.0f}% "
+        f"· {_t('credit')} ${c['credit_usd']:.0f} · {_t('score')} {c['score']:.0f}"
     )
 
 
@@ -72,16 +158,16 @@ def _fmt_strangle(c: Dict, i: int) -> str:
     apr = f"{c['apr_on_im'] * 100:.0f}%" if c.get("apr_on_im") else "—"
     return (
         f"{i}. {c['expiry_date']} ({c['dte']:.0f}d) {ks}\n"
-        f"   胜率 {c['pop'] * 100:.0f}% · APR(保证金) {apr} "
-        f"· 收 ${c['credit_usd']:.0f} · 尾部 ${c['tail_loss_est_usd']:.0f}"
+        f"   {_t('win_rate')} {c['pop'] * 100:.0f}% · APR(保证金) {apr} "
+        f"· {_t('credit')} ${c['credit_usd']:.0f} · {_t('tail')} ${c['tail_loss_est_usd']:.0f}"
     )
 
 
 def _fmt_csp(c: Dict, i: int) -> str:
     return (
         f"{i}. {c['expiry_date']} K={c['strike']:,.0f}\n"
-        f"   折扣 {c['discount_pct'] * 100:.1f}% · APR {c['apr'] * 100:.0f}% "
-        f"· 收 ${c['premium']:.0f} · 评分 {c['score']:.0f}"
+        f"   {_t('discount')} {c['discount_pct'] * 100:.1f}% · APR {c['apr'] * 100:.0f}% "
+        f"· {_t('credit')} ${c['premium']:.0f} · {_t('score')} {c['score']:.0f}"
     )
 
 
@@ -99,13 +185,13 @@ def _daily_picks_for_base(date: str, base: str) -> List[str]:
     lines: List[str] = []
     dvol_txt = f"{meta.dvol_index:.1f}%" if meta.dvol_index else "—"
     ivp_txt = f"{ivp * 100:.0f}%" if ivp is not None else "—"
-    lines.append(f"📊 {base} 每日策略精选（{date}）")
-    lines.append(f"现货 ${meta.spot_price:,.0f} · DVOL {dvol_txt} · IVP {ivp_txt}")
+    lines.append(f"📊 {base} {_t('daily_picks')}（{date}）")
+    lines.append(f"{_t('spot')} ${meta.spot_price:,.0f} · DVOL {dvol_txt} · IVP {ivp_txt}")
 
     try:
         ic = scan_iron_condor(chain, meta, svi, return_count=2, ivp=ivp)
         if ic["candidates"]:
-            lines.append("\n🦅 铁秃鹰")
+            lines.append(f"\n🦅 {_t('iron_condor')}")
             lines += [_fmt_ic(c, i + 1) for i, c in enumerate(ic["candidates"])]
     except Exception:
         logger.warning("picks: IC scan failed base=%s", base, exc_info=True)
@@ -113,7 +199,7 @@ def _daily_picks_for_base(date: str, base: str) -> List[str]:
     try:
         st = scan_strangle(chain, meta, svi, side="short", return_count=2, ivp=ivp)
         if st["short"]:
-            lines.append("\n⚡ 宽跨 Short（理论亏损无限，注意仓位）")
+            lines.append(f"\n⚡ {_t('strangle_short')}")
             lines += [_fmt_strangle(c, i + 1) for i, c in enumerate(st["short"])]
     except Exception:
         logger.warning("picks: strangle scan failed base=%s", base, exc_info=True)
@@ -122,12 +208,12 @@ def _daily_picks_for_base(date: str, base: str) -> List[str]:
         # 与前端 UI 同口径（默认 max_spread_bps=500 过紧会漏掉多数候选）
         csp = scan_csp(chain, meta, max_spread_bps=1500, return_count=2)
         if csp["candidates"]:
-            lines.append("\n💰 低吸收租（CSP）")
+            lines.append(f"\n💰 {_t('csp')}")
             lines += [_fmt_csp(c, i + 1) for i, c in enumerate(csp["candidates"])]
     except Exception:
         logger.warning("picks: CSP scan failed base=%s", base, exc_info=True)
 
-    lines.append("\n仅教育参考，非投资建议")
+    lines.append(f"\n{_t('disclaimer')}")
     return lines
 
 
@@ -153,7 +239,7 @@ async def push_daily_picks(date: str, bases: List[str]) -> None:
 
 async def alert_etl_failure(error: str) -> None:
     """ETL 失败警报（数据将 stale）。"""
-    await send_message(f"⚠️ ETL 执行失败，今日数据可能未更新：\n{error[:500]}")
+    await send_message(f"{_t('etl_failed')}\n{error[:500]}")
 
 
 async def check_dvol_jump(date: str, bases: List[str]) -> None:
@@ -173,7 +259,7 @@ async def check_dvol_jump(date: str, bases: List[str]) -> None:
                 continue
             change = (cur - prev) / prev
             if abs(change) >= _DVOL_JUMP_ALERT:
-                direction = "飙升" if change > 0 else "骤降"
+                direction = _t("dvol_spike") if change > 0 else _t("dvol_drop")
                 await send_message(
                     f"🌡️ {base} DVOL {direction} {abs(change) * 100:.0f}%："
                     f"{prev:.1f}% → {cur:.1f}%（{date}）"

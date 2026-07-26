@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { IronCondorResult } from '../types/api';
 import PayoffChart from './PayoffChart';
@@ -16,10 +17,11 @@ function formatNumber(num: number, decimals: number = 2): string {
 }
 
 interface Props {
-  onDataUpdate?: (data: { asof_ts: number; spot_price?: number; dvol_index?: number }) => void;
+  onDataUpdate?: (data: { asof_ts: number; spot_price?: number; dvol_index?: number; base?: 'BTC' | 'ETH' }) => void;
 }
 
 export default function IronCondorScanner({ onDataUpdate }: Props) {
+  const { t } = useTranslation();
   const [base, setBase] = usePersistedState<'BTC' | 'ETH'>('ic.base', 'BTC');
   const [dteMin, setDteMin] = usePersistedState('ic.dteMin', '14');
   const [dteMax, setDteMax] = usePersistedState('ic.dteMax', '60');
@@ -55,7 +57,7 @@ export default function IronCondorScanner({ onDataUpdate }: Props) {
       });
 
       if (!resp.ok) {
-        if (resp.status === 429) throw new Error('操作太频繁，请稍候再试');
+        if (resp.status === 429) throw new Error(t('common.error429'));
         throw new Error(`${resp.status} ${resp.statusText}`);
       }
       const data: IronCondorResult = await resp.json();
@@ -66,6 +68,7 @@ export default function IronCondorScanner({ onDataUpdate }: Props) {
           asof_ts: data.asof_ts,
           spot_price: data.spot_price,
           dvol_index: data.dvol_index,
+          base,
         });
       }
     } catch (e: any) {
@@ -77,50 +80,50 @@ export default function IronCondorScanner({ onDataUpdate }: Props) {
 
   return (
     <div className="scanner-section">
-      <h2 className="scanner-title">铁秃鹰（Iron Condor）</h2>
+      <h2 className="scanner-title">{t('ironcondor.title')}</h2>
       <p className="scanner-description">
-        策略说明：同一到期卖 OTM Put 价差 + 卖 OTM Call 价差，四腿组合——价格在区间内白收权利金，两端有保护腿限制亏损
+        {t('ironcondor.description')}
       </p>
 
       <div className="filter-grid filter-grid-3">
         <label className="filter-label">
-          <strong>标的</strong>
+          <strong>{t('common.base')}</strong>
           <select className="filter-select" value={base} onChange={e => setBase(e.target.value as any)}>
             <option value="BTC">BTC</option>
             <option value="ETH">ETH</option>
           </select>
         </label>
         <label className="filter-label">
-          <strong>DTE 最小（天）</strong>
+          <strong>{t('common.dteMin')}</strong>
           <input type="number" className="filter-input" value={dteMin} onChange={e => setDteMin(e.target.value)} />
         </label>
         <label className="filter-label">
-          <strong>DTE 最大（天）</strong>
+          <strong>{t('common.dteMax')}</strong>
           <input type="number" className="filter-input" value={dteMax} onChange={e => setDteMax(e.target.value)} />
         </label>
         <label className="filter-label">
-          <strong>短腿 Delta 下限</strong>
+          <strong>{t('ironcondor.shortDeltaMin')}</strong>
           <input type="number" step="0.01" className="filter-input" value={shortDeltaMin} onChange={e => setShortDeltaMin(e.target.value)} />
         </label>
         <label className="filter-label">
-          <strong>短腿 Delta 上限</strong>
+          <strong>{t('ironcondor.shortDeltaMax')}</strong>
           <input type="number" step="0.01" className="filter-input" value={shortDeltaMax} onChange={e => setShortDeltaMax(e.target.value)} />
         </label>
         <label className="filter-label">
-          <strong>最小持仓量</strong>
+          <strong>{t('common.minOi')}</strong>
           <input type="number" className="filter-input" value={minOi} onChange={e => setMinOi(e.target.value)} />
         </label>
         <label className="filter-label">
-          <strong>定价模式</strong>
+          <strong>{t('common.pricingMode')}</strong>
           <select className="filter-select" value={pricingMode} onChange={e => setPricingMode(e.target.value as any)}>
-            <option value="mid">中间价</option>
-            <option value="conservative">保守价（可执行）</option>
+            <option value="mid">{t('common.pricingMid')}</option>
+            <option value="conservative">{t('common.pricingConservative')}</option>
           </select>
         </label>
       </div>
 
       <button className="btn-primary" onClick={handleScan} disabled={loading}>
-        {loading ? '扫描中...' : '扫描策略'}
+        {loading ? t('common.scanning') : t('common.scan')}
       </button>
 
       {error && <div className="error-message">{error}</div>}
@@ -131,19 +134,19 @@ export default function IronCondorScanner({ onDataUpdate }: Props) {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>到期日</th>
-                  <th className="align-right">DTE</th>
-                  <th className="align-right">行权价</th>
-                  <th className="align-right">权利金收入</th>
-                  <th className="align-right">最大亏损</th>
-                  <th className="align-right">盈亏区间</th>
-                  <th className="align-right">胜率</th>
-                  <th className="align-right">APR</th>
-                  <th className="align-right">保证金</th>
+                  <th>{t('common.expiry')}</th>
+                  <th className="align-right">{t('common.dte')}</th>
+                  <th className="align-right">{t('common.strikes')}</th>
+                  <th className="align-right">{t('ironcondor.credit')}</th>
+                  <th className="align-right">{t('ironcondor.maxLoss')}</th>
+                  <th className="align-right">{t('ironcondor.range')}</th>
+                  <th className="align-right">{t('ironcondor.winRate')}</th>
+                  <th className="align-right">{t('ironcondor.apr')}</th>
+                  <th className="align-right">{t('ironcondor.margin')}</th>
                   <th className="align-right">
-                    Kelly <span className="help-icon" title="简化 Kelly 仓位建议：f* = p − q/b，显示 1/4 Kelly。&#10;p=胜率（RND），b=权利金/最大亏损。&#10;仅供参考，非投资建议。">i</span>
+                    Kelly <span className="help-icon" title={t('common.kellyHelp')}>i</span>
                   </th>
-                  <th className="align-right">得分</th>
+                  <th className="align-right">{t('common.score')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -177,7 +180,7 @@ export default function IronCondorScanner({ onDataUpdate }: Props) {
                       </td>
                       <td className="align-right">${formatNumber(c.im_standard_usd, 0)}</td>
                       <td className="align-right" style={{ fontWeight: 'bold', color: quarterKelly(c.pop, c.credit_usd / c.max_loss_usd).zero ? '#dc3545' : 'inherit' }}
-                        title="1/4 Kelly 建议仓位（占可用保证金）">
+                        title={t('common.kellyTitle')}>
                         {quarterKelly(c.pop, c.credit_usd / c.max_loss_usd).pct}
                       </td>
                       <td className="align-right">
@@ -191,15 +194,15 @@ export default function IronCondorScanner({ onDataUpdate }: Props) {
                         <td colSpan={11}>
                           <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', padding: '8px 16px' }}>
                             <div>
-                              <strong>腿详情</strong>
+                              <strong>{t('common.legDetails')}</strong>
                               <table style={{ fontSize: 13, marginTop: 4 }}>
                                 <thead>
-                                  <tr><th>方向</th><th>类型</th><th>行权价</th><th>价格</th><th>Delta</th><th>IV</th><th>OI</th></tr>
+                                  <tr><th>{t('common.legDir')}</th><th>{t('common.legType')}</th><th>{t('common.legStrike')}</th><th>{t('common.legPrice')}</th><th>Delta</th><th>{t('common.legIv')}</th><th>{t('common.legOi')}</th></tr>
                                 </thead>
                                 <tbody>
                                   {c.legs.map((l, i) => (
                                     <tr key={i}>
-                                      <td>{l.side === 'buy' ? '买入' : '卖出'}</td>
+                                      <td>{l.side === 'buy' ? t('common.buy') : t('common.sell')}</td>
                                       <td>{l.kind}</td>
                                       <td>${formatNumber(l.strike, 0)}</td>
                                       <td>{l.price.toFixed(4)}</td>
@@ -212,14 +215,14 @@ export default function IronCondorScanner({ onDataUpdate }: Props) {
                               </table>
                             </div>
                             <div>
-                              <strong>Greeks</strong>
+                              <strong>{t('common.greeks')}</strong>
                               <div style={{ fontSize: 13, marginTop: 4 }}>
-                                <div>净 Delta: {c.greeks.net_delta.toFixed(3)}</div>
-                                <div>净 Vega: ${formatNumber(c.greeks.net_vega_usd, 2)}</div>
-                                <div>净 Theta: ${formatNumber(c.greeks.net_theta_usd, 2)}/day</div>
-                                <div style={{ marginTop: 4 }}>IVP 评分: {c.ivp_score ? (c.ivp_score * 100).toFixed(0) : '—'}</div>
-                                <div>流动性评分: {c.liquidity_score.toFixed(2)}</div>
-                                <div>ROI: {(c.roi_on_max_loss * 100).toFixed(1)}%</div>
+                                <div>{t('common.netDelta')}: {c.greeks.net_delta.toFixed(3)}</div>
+                                <div>{t('common.netVega')}: ${formatNumber(c.greeks.net_vega_usd, 2)}</div>
+                                <div>{t('common.netTheta')}: ${formatNumber(c.greeks.net_theta_usd, 2)}/day</div>
+                                <div style={{ marginTop: 4 }}>{t('common.ivpScore')}: {c.ivp_score ? (c.ivp_score * 100).toFixed(0) : '—'}</div>
+                                <div>{t('common.liquidityScore')}: {c.liquidity_score.toFixed(2)}</div>
+                                <div>{t('ironcondor.roi')}: {(c.roi_on_max_loss * 100).toFixed(1)}%</div>
                               </div>
                             </div>
                             <div style={{ flex: '1 1 320px', minWidth: 300 }}>
@@ -245,7 +248,7 @@ export default function IronCondorScanner({ onDataUpdate }: Props) {
       )}
 
       {result && result.candidates.length === 0 && (
-        <div className="no-results">未找到符合条件的策略，请调整筛选条件</div>
+        <div className="no-results">{t('common.noResults')}</div>
       )}
     </div>
   );

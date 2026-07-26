@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { PayoffLeg, portfolioPnlAt, portfolioDeltaAt } from '../lib/payoff';
 
@@ -22,6 +23,7 @@ function fmtUsd(v: number): string {
 }
 
 export default function ScenarioTable({ legs, spot }: Props) {
+  const { t } = useTranslation();
   const rows = useMemo(() => SHOCKS.map(shock => {
     const sT = spot * (1 + shock);
     return {
@@ -34,21 +36,21 @@ export default function ScenarioTable({ legs, spot }: Props) {
 
   return (
     <div style={{ minWidth: 260 }}>
-      <strong>情景分析（现货冲击 · MTM）</strong>
+      <strong>{t('scenario.title')}</strong>
       <table style={{ fontSize: 13, marginTop: 4, borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ color: '#888' }}>
-            <th style={{ textAlign: 'left', padding: '2px 10px 2px 0', fontWeight: 500 }}>冲击</th>
-            <th style={{ textAlign: 'right', padding: '2px 10px', fontWeight: 500 }}>现货</th>
-            <th style={{ textAlign: 'right', padding: '2px 10px', fontWeight: 500 }}>浮盈亏</th>
-            <th style={{ textAlign: 'right', padding: '2px 0 2px 10px', fontWeight: 500 }}>净Δ</th>
+            <th style={{ textAlign: 'left', padding: '2px 10px 2px 0', fontWeight: 500 }}>{t('scenario.shock')}</th>
+            <th style={{ textAlign: 'right', padding: '2px 10px', fontWeight: 500 }}>{t('scenario.spot')}</th>
+            <th style={{ textAlign: 'right', padding: '2px 10px', fontWeight: 500 }}>{t('scenario.mtmPnl')}</th>
+            <th style={{ textAlign: 'right', padding: '2px 0 2px 10px', fontWeight: 500 }}>{t('scenario.netDelta')}</th>
           </tr>
         </thead>
         <tbody>
           {rows.map(r => (
             <tr key={r.shock} style={{ background: r.shock === 0 ? '#f5f5f5' : 'transparent' }}>
               <td style={{ padding: '2px 10px 2px 0' }}>
-                {r.shock === 0 ? '现价' : `${r.shock > 0 ? '+' : ''}${(r.shock * 100).toFixed(0)}%`}
+                {r.shock === 0 ? t('scenario.current') : `${r.shock > 0 ? '+' : ''}${(r.shock * 100).toFixed(0)}%`}
               </td>
               <td style={{ textAlign: 'right', padding: '2px 10px' }}>
                 ${r.sT.toLocaleString('en-US', { maximumFractionDigits: 0 })}
@@ -67,7 +69,7 @@ export default function ScenarioTable({ legs, spot }: Props) {
         </tbody>
       </table>
       <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>
-        BS 重估（IV/期限不变假设）；实际跳空时 IV 通常同步飙升，空头亏损会更大
+        {t('scenario.note')}
       </div>
     </div>
   );

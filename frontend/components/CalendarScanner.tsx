@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { CalendarResult } from '../types/api';
 import PayoffChart from './PayoffChart';
@@ -15,10 +16,11 @@ function formatNumber(num: number, decimals: number = 2): string {
 }
 
 interface Props {
-  onDataUpdate?: (data: { asof_ts: number; spot_price?: number; dvol_index?: number }) => void;
+  onDataUpdate?: (data: { asof_ts: number; spot_price?: number; dvol_index?: number; base?: 'BTC' | 'ETH' }) => void;
 }
 
 export default function CalendarScanner({ onDataUpdate }: Props) {
+  const { t } = useTranslation();
   const [base, setBase] = usePersistedState<'BTC' | 'ETH'>('cal.base', 'BTC');
   const [nearDteMin, setNearDteMin] = usePersistedState('cal.nearDteMin', '7');
   const [nearDteMax, setNearDteMax] = usePersistedState('cal.nearDteMax', '30');
@@ -54,7 +56,7 @@ export default function CalendarScanner({ onDataUpdate }: Props) {
       });
 
       if (!resp.ok) {
-        if (resp.status === 429) throw new Error('操作太频繁，请稍候再试');
+        if (resp.status === 429) throw new Error(t('common.error429'));
         throw new Error(`${resp.status} ${resp.statusText}`);
       }
       const data: CalendarResult = await resp.json();
@@ -65,6 +67,7 @@ export default function CalendarScanner({ onDataUpdate }: Props) {
           asof_ts: data.asof_ts,
           spot_price: data.spot_price,
           dvol_index: data.dvol_index,
+          base,
         });
       }
     } catch (e: any) {
@@ -76,50 +79,50 @@ export default function CalendarScanner({ onDataUpdate }: Props) {
 
   return (
     <div className="scanner-section">
-      <h2 className="scanner-title">日历价差（Calendar Spread）</h2>
+      <h2 className="scanner-title">{t('calendar.title')}</h2>
       <p className="scanner-description">
-        策略说明：卖近月 + 买远月同行权价——利用近月 theta 衰减更快获利的时间价值套利，期限结构 backwardation 时更佳
+        {t('calendar.description')}
       </p>
 
       <div className="filter-grid filter-grid-3">
         <label className="filter-label">
-          <strong>标的</strong>
+          <strong>{t('common.base')}</strong>
           <select className="filter-select" value={base} onChange={e => setBase(e.target.value as any)}>
             <option value="BTC">BTC</option>
             <option value="ETH">ETH</option>
           </select>
         </label>
         <label className="filter-label">
-          <strong>近月 DTE 最小（天）</strong>
+          <strong>{t('calendar.nearDteMin')}</strong>
           <input type="number" className="filter-input" value={nearDteMin} onChange={e => setNearDteMin(e.target.value)} />
         </label>
         <label className="filter-label">
-          <strong>近月 DTE 最大（天）</strong>
+          <strong>{t('calendar.nearDteMax')}</strong>
           <input type="number" className="filter-input" value={nearDteMax} onChange={e => setNearDteMax(e.target.value)} />
         </label>
         <label className="filter-label">
-          <strong>最小间隔（天）</strong>
+          <strong>{t('calendar.minGapDays')}</strong>
           <input type="number" className="filter-input" value={minGapDays} onChange={e => setMinGapDays(e.target.value)} />
         </label>
         <label className="filter-label">
-          <strong>行权价带宽（ln(K/S)）</strong>
+          <strong>{t('calendar.strikeBand')}</strong>
           <input type="number" step="0.01" className="filter-input" value={strikeBandPct} onChange={e => setStrikeBandPct(e.target.value)} />
         </label>
         <label className="filter-label">
-          <strong>最小持仓量</strong>
+          <strong>{t('common.minOi')}</strong>
           <input type="number" className="filter-input" value={minOi} onChange={e => setMinOi(e.target.value)} />
         </label>
         <label className="filter-label">
-          <strong>定价模式</strong>
+          <strong>{t('common.pricingMode')}</strong>
           <select className="filter-select" value={pricingMode} onChange={e => setPricingMode(e.target.value as any)}>
-            <option value="mid">中间价</option>
-            <option value="conservative">保守价（可执行）</option>
+            <option value="mid">{t('common.pricingMid')}</option>
+            <option value="conservative">{t('common.pricingConservative')}</option>
           </select>
         </label>
       </div>
 
       <button className="btn-primary" onClick={handleScan} disabled={loading}>
-        {loading ? '扫描中...' : '扫描策略'}
+        {loading ? t('common.scanning') : t('common.scan')}
       </button>
 
       {error && <div className="error-message">{error}</div>}
@@ -130,16 +133,16 @@ export default function CalendarScanner({ onDataUpdate }: Props) {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>近月 / 远月</th>
-                  <th className="align-right">DTE 近/远</th>
-                  <th className="align-right">行权价</th>
-                  <th className="align-right">类型</th>
-                  <th className="align-right">成本</th>
-                  <th className="align-right">IV 近/远</th>
-                  <th className="align-right">期限斜率</th>
-                  <th className="align-right">Theta APR</th>
-                  <th className="align-right">利润区间</th>
-                  <th className="align-right">得分</th>
+                  <th>{t('calendar.nearFar')}</th>
+                  <th className="align-right">{t('calendar.dteNearFar')}</th>
+                  <th className="align-right">{t('common.strike')}</th>
+                  <th className="align-right">{t('calendar.kind')}</th>
+                  <th className="align-right">{t('calendar.cost')}</th>
+                  <th className="align-right">{t('calendar.ivNearFar')}</th>
+                  <th className="align-right">{t('calendar.ivSlope')}</th>
+                  <th className="align-right">{t('calendar.thetaApr')}</th>
+                  <th className="align-right">{t('calendar.profitZone')}</th>
+                  <th className="align-right">{t('common.score')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -172,7 +175,7 @@ export default function CalendarScanner({ onDataUpdate }: Props) {
                       <td className="align-right" style={{ fontSize: 12 }}>
                         {c.profit_zone.breakeven_lo != null && c.profit_zone.breakeven_hi != null
                           ? `${formatNumber(c.profit_zone.breakeven_lo, 0)} ~ ${formatNumber(c.profit_zone.breakeven_hi, 0)}`
-                          : '无盈利区间'}
+                          : t('calendar.noProfitZone')}
                       </td>
                       <td className="align-right">
                         <span className={`score-badge ${c.score >= 70 ? 'high' : c.score >= 50 ? 'medium' : 'low'}`}>
@@ -185,15 +188,15 @@ export default function CalendarScanner({ onDataUpdate }: Props) {
                         <td colSpan={10}>
                           <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', padding: '8px 16px' }}>
                             <div>
-                              <strong>腿详情</strong>
+                              <strong>{t('common.legDetails')}</strong>
                               <table style={{ fontSize: 13, marginTop: 4 }}>
                                 <thead>
-                                  <tr><th>方向</th><th>类型</th><th>行权价</th><th>价格</th><th>Delta</th><th>IV</th></tr>
+                                  <tr><th>{t('common.legDir')}</th><th>{t('common.legType')}</th><th>{t('common.legStrike')}</th><th>{t('common.legPrice')}</th><th>Delta</th><th>{t('common.legIv')}</th></tr>
                                 </thead>
                                 <tbody>
                                   {c.legs.map((l, i) => (
                                     <tr key={i}>
-                                      <td>{l.side === 'buy' ? '买入远月' : '卖出近月'}</td>
+                                      <td>{l.side === 'buy' ? t('calendar.buyFar') : t('calendar.sellNear')}</td>
                                       <td>{l.kind}</td>
                                       <td>${formatNumber(l.strike, 0)}</td>
                                       <td>{l.price.toFixed(4)}</td>
@@ -205,15 +208,15 @@ export default function CalendarScanner({ onDataUpdate }: Props) {
                               </table>
                             </div>
                             <div>
-                              <strong> Greeks & 利润估计</strong>
+                              <strong>{t('common.greeksProfit')}</strong>
                               <div style={{ fontSize: 13, marginTop: 4 }}>
-                                <div>净 Vega: ${formatNumber(c.net_vega_usd, 2)}</div>
-                                <div>净 Theta: ${formatNumber(c.net_theta_usd, 2)}/day</div>
-                                <div>期限斜率比: {c.iv_slope_ratio.toFixed(3)}</div>
-                                <div>成本/波动比: {c.debit_ratio.toFixed(2)}</div>
-                                <div>最大利润估计: ${formatNumber(c.profit_zone.max_profit_est, 2)}</div>
-                                <div>最优标的价格: ${formatNumber(c.profit_zone.max_profit_spot, 0)}</div>
-                                <div style={{ marginTop: 4 }}>流动性评分: {c.liquidity_score.toFixed(2)}</div>
+                                <div>{t('common.netVega')}: ${formatNumber(c.net_vega_usd, 2)}</div>
+                                <div>{t('common.netTheta')}: ${formatNumber(c.net_theta_usd, 2)}/day</div>
+                                <div>{t('calendar.ivSlopeRatio')}: {c.iv_slope_ratio.toFixed(3)}</div>
+                                <div>{t('calendar.debitRatio')}: {c.debit_ratio.toFixed(2)}</div>
+                                <div>{t('calendar.maxProfitEst')}: ${formatNumber(c.profit_zone.max_profit_est, 2)}</div>
+                                <div>{t('calendar.optimalSpot')}: ${formatNumber(c.profit_zone.max_profit_spot, 0)}</div>
+                                <div style={{ marginTop: 4 }}>{t('common.liquidityScore')}: {c.liquidity_score.toFixed(2)}</div>
                               </div>
                             </div>
                             <div style={{ flex: '1 1 320px', minWidth: 300 }}>
@@ -239,7 +242,7 @@ export default function CalendarScanner({ onDataUpdate }: Props) {
       )}
 
       {result && result.candidates.length === 0 && (
-        <div className="no-results">未找到符合条件的策略，请调整筛选条件</div>
+        <div className="no-results">{t('common.noResults')}</div>
       )}
     </div>
   );

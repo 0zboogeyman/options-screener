@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { payoffCurve, PayoffLeg } from '../lib/payoff';
 
@@ -21,6 +22,7 @@ function fmt(v: number): string {
 }
 
 export default function PayoffChart({ legs, spot, offsetYears, height = 180 }: Props) {
+  const { t } = useTranslation();
   const { path, areaPath, zeroY, spotX, maxProfit, maxLoss, xLo, xHi, yMin, yMax, W, H, padL, padR } = useMemo(() => {
     const { points, maxProfit, maxLoss } = payoffCurve(legs, spot, offsetYears);
     const W = 640;
@@ -69,7 +71,7 @@ export default function PayoffChart({ legs, spot, offsetYears, height = 180 }: P
         {/* 当前价 */}
         <line x1={spotX} y1={padT} x2={spotX} y2={H - padB} stroke="#185FA5" strokeDasharray="5 3" strokeWidth={1} />
         <text x={spotX} y={padT - 3} fontSize={10} fill="#185FA5" textAnchor="middle">
-          现价 {fmt(spot)}
+          {t('payoff.spotLabel', { value: fmt(spot) })}
         </text>
         {/* P&L 曲线 */}
         <path d={path} fill="none" stroke="#534AB7" strokeWidth={1.8} />
@@ -85,11 +87,11 @@ export default function PayoffChart({ legs, spot, offsetYears, height = 180 }: P
         <text x={padL - 6} y={zeroY + 3} fontSize={10} fill="#999" textAnchor="end">0</text>
       </svg>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#888', marginTop: 2 }}>
-        <span>到期/估值日盈亏（USD）</span>
+        <span>{t('payoff.expiryLabel')}</span>
         <span>
-          <span style={{ color: '#A32D2D' }}>最大盈利 +${fmt(maxProfit)}</span>
+          <span style={{ color: '#A32D2D' }}>{t('payoff.maxProfit', { value: fmt(maxProfit) })}</span>
           {' · '}
-          <span style={{ color: '#3B6D11' }}>最大亏损 ${fmt(maxLoss)}</span>
+          <span style={{ color: '#3B6D11' }}>{t('payoff.maxLoss', { value: fmt(maxLoss) })}</span>
         </span>
       </div>
     </div>

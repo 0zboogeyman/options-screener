@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import type { Bucket, ScanLeg } from '../types/api';
 import { quarterKelly } from '../lib/kelly';
 
@@ -6,24 +7,15 @@ interface ResultBucketProps {
   spotPrice: number;
 }
 
-function getStrategyTitle(legType: string, side: string): string {
-  const typeMap: Record<string, string> = {
-    'CALL': '看涨期权',
-    'PUT': '看跌期权'
-  };
-  const sideMap: Record<string, string> = {
-    'DEBIT': '借方价差 (付权利金)',
-    'CREDIT': '贷方价差 (收权利金)'
-  };
-  return `${typeMap[legType] || legType} - ${sideMap[side] || side}`;
-}
-
 export default function ResultBucket({ bucket, spotPrice }: ResultBucketProps) {
-  const title = getStrategyTitle(bucket.leg_type, bucket.side);
+  const { t } = useTranslation();
+  const legTypeLabel = bucket.leg_type === 'CALL' ? t('result.call') : t('result.put');
+  const sideLabel = bucket.side === 'DEBIT' ? t('result.debit') : t('result.credit');
+  const title = `${legTypeLabel} - ${sideLabel}`;
   const isDebit = bucket.side === 'DEBIT';
   const strategies = isDebit ? bucket.top.slice(0, 3) : bucket.bottom.slice(0, 3);
-  const rankLabel = isDebit ? 'Top 3（高赔率）' : 'Bottom 3（低赔率）';
-  const commentary = isDebit ? '小成本博取大回报' : '最具性价比的鸭子策略';
+  const rankLabel = isDebit ? t('result.top3') : t('result.bottom3');
+  const commentary = isDebit ? t('result.debitComment') : t('result.creditComment');
 
   const formatNumber = (num: number, decimals: number = 2): string => {
     return num.toLocaleString('en-US', {
@@ -47,7 +39,7 @@ export default function ResultBucket({ bucket, spotPrice }: ResultBucketProps) {
         <td>${formatNumber(maxLossUsd, 2)}</td>
         <td>{Number.isFinite(it.odds) ? it.odds.toFixed(1) : '—'}</td>
         <td style={{ fontWeight: 'bold', color: kelly.zero ? '#dc3545' : 'inherit' }}
-          title="1/4 Kelly 建议仓位（占可用保证金）">{kelly.pct}</td>
+          title={t('common.kellyTitle')}>{kelly.pct}</td>
       </tr>
     );
   };
@@ -63,13 +55,13 @@ export default function ResultBucket({ bucket, spotPrice }: ResultBucketProps) {
         <table className="data-table">
           <thead>
             <tr>
-              <th>执行价1</th>
-              <th>执行价2</th>
-              <th>权利金 <span className="help-icon" title="价格计算规则：&#10;1. 优先使用买卖价中间价 (bid+ask)/2&#10;2. 若无买卖价，使用 Deribit mark_price&#10;3. 若仍无数据，使用单边报价 bid 或 ask&#10;&#10;数据过滤规则：&#10;1. 过滤单腿期权 spread_ratio > 0.5（买卖价差超过中间价50%）&#10;2. 过滤组合权利金 < $10（避免深度虚值期权）">i</span></th>
-              <th>最大收益</th>
-              <th>最大亏损</th>
-              <th>赔率</th>
-              <th>Kelly <span className="help-icon" title="简化 Kelly 仓位建议：f* = p − q/b，显示 1/4 Kelly。&#10;p=胜率（SVI/RND），b=最大收益/最大亏损。&#10;仅供参考，非投资建议。">i</span></th>
+              <th>{t('result.strike1')}</th>
+              <th>{t('result.strike2')}</th>
+              <th>{t('common.premium')} <span className="help-icon" title={t('common.premiumHelp')}>i</span></th>
+              <th>{t('result.maxProfit')}</th>
+              <th>{t('result.maxLoss')}</th>
+              <th>{t('result.odds')}</th>
+              <th>Kelly <span className="help-icon" title={t('common.kellyHelp')}>i</span></th>
             </tr>
           </thead>
           <tbody>

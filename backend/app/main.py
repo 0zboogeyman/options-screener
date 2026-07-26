@@ -14,6 +14,7 @@ from slowapi.errors import RateLimitExceeded
 
 from .api.routes_meta import router as meta_router
 from .api.routes_etl import router as etl_router
+from .api.routes_geo import router as geo_router
 from .api.routes_multi_leg import router as multi_leg_router
 from .api.routes_spread import router as spread_router
 from .api.routes_single_leg import router as single_leg_router
@@ -132,6 +133,7 @@ def create_app() -> FastAPI:
     app.include_router(single_leg_router, prefix="/api")
     app.include_router(multi_leg_router, prefix="/api")
     app.include_router(etl_router, prefix="/api")
+    app.include_router(geo_router, prefix="/api")
 
     # 前端静态导出（Next.js output:export）同源托管：
     # API 路由先注册先匹配，"/" 挂载只兜底页面与静态资源，/api/* 不受影响。
@@ -144,7 +146,7 @@ def create_app() -> FastAPI:
     else:
         logger.warning("Frontend dist %s not found; running in API-only mode", dist)
 
-    logger.info("Application initialized with %d routers", 5)
+    logger.info("Application initialized with %d routers", 6)
     return app
 
 

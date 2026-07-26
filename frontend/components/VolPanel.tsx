@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { VolPanelData } from '../types/api';
 import { usePersistedState } from '../lib/usePersistedState';
@@ -21,6 +22,7 @@ function ivColor(ivp: number | null): string {
 }
 
 export default function VolPanel() {
+  const { t } = useTranslation();
   const [base, setBase] = usePersistedState<'BTC' | 'ETH'>('vol.base', 'BTC');
   const [data, setData] = useState<VolPanelData | null>(null);
   const [error, setError] = useState('');
@@ -71,14 +73,14 @@ export default function VolPanel() {
 
   return (
     <div className="scanner-section">
-      <h2 className="scanner-title">波动率面板</h2>
+      <h2 className="scanner-title">{t('vol.title')}</h2>
       <p className="scanner-description">
-        SVI 隐含波动率曲面 + DVOL 历史 — IV 贵不贵看 IVP/IVR，期限结构看 contango/backwardation，skew 看 rr25
+        {t('vol.description')}
       </p>
 
       <div className="filter-grid filter-grid-2" style={{ marginBottom: 16 }}>
         <label className="filter-label">
-          <strong>标的</strong>
+          <strong>{t('common.base')}</strong>
           <select className="filter-select" value={base} onChange={e => setBase(e.target.value as any)}>
             <option value="BTC">BTC</option>
             <option value="ETH">ETH</option>
@@ -86,7 +88,7 @@ export default function VolPanel() {
         </label>
       </div>
 
-      {loading && <p className="loading-message">加载中...</p>}
+      {loading && <p className="loading-message">{t('common.loading')}</p>}
       {error && <div className="error-message">{error}</div>}
 
       {data && (
@@ -97,7 +99,7 @@ export default function VolPanel() {
               background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8,
               padding: '16px 24px', minWidth: 140
             }}>
-              <div style={{ fontSize: 13, color: '#666' }}>DVOL 指数</div>
+              <div style={{ fontSize: 13, color: '#666' }}>{t('vol.dvolIndex')}</div>
               <div style={{ fontSize: 28, fontWeight: 'bold', color: '#333' }}>
                 {data.dvol != null ? `${data.dvol.toFixed(1)}%` : '—'}
               </div>
@@ -106,17 +108,17 @@ export default function VolPanel() {
               background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8,
               padding: '16px 24px', minWidth: 140
             }}>
-              <div style={{ fontSize: 13, color: '#666' }}>IV 百分位 (IVP)</div>
+              <div style={{ fontSize: 13, color: '#666' }}>{t('vol.ivp')}</div>
               <div style={{ fontSize: 28, fontWeight: 'bold', color: ivColor(data.ivp) }}>
                 {data.ivp != null ? `${(data.ivp * 100).toFixed(0)}%` : '—'}
               </div>
-              <div style={{ fontSize: 11, color: '#999' }}>{data.days_available} 天样本</div>
+              <div style={{ fontSize: 11, color: '#999' }}>{t('vol.daysSample', { count: data.days_available })}</div>
             </div>
             <div style={{
               background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8,
               padding: '16px 24px', minWidth: 140
             }}>
-              <div style={{ fontSize: 13, color: '#666' }}>IV Rank (IVR)</div>
+              <div style={{ fontSize: 13, color: '#666' }}>{t('vol.ivr')}</div>
               <div style={{ fontSize: 28, fontWeight: 'bold', color: ivColor(data.ivr) }}>
                 {data.ivr != null ? `${(data.ivr * 100).toFixed(0)}%` : '—'}
               </div>
@@ -126,7 +128,7 @@ export default function VolPanel() {
                 background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8,
                 padding: '8px 16px', minWidth: 320
               }}>
-                <div style={{ fontSize: 13, color: '#666', marginBottom: 4 }}>DVOL 90 天趋势</div>
+                <div style={{ fontSize: 13, color: '#666', marginBottom: 4 }}>{t('vol.dvolTrend')}</div>
                 {dvolSparkline}
               </div>
             )}
@@ -135,40 +137,40 @@ export default function VolPanel() {
           {/* 期限结构表 */}
           {data.term_structure.length > 0 && (
             <div className="result-card">
-              <h3 style={{ padding: '12px 16px', margin: 0 }}>SVI 期限结构与 Skew</h3>
+              <h3 style={{ padding: '12px 16px', margin: 0 }}>{t('vol.termTitle')}</h3>
               <div className="table-container">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>到期日</th>
-                      <th className="align-right">DTE</th>
-                      <th className="align-right">ATM IV</th>
-                      <th className="align-right">RR25 (Skew)</th>
-                      <th className="align-right">BF25 (Kurtosis)</th>
-                      <th className="align-right">偏度判断</th>
+                      <th>{t('common.expiry')}</th>
+                      <th className="align-right">{t('common.dte')}</th>
+                      <th className="align-right">{t('vol.atmIv')}</th>
+                      <th className="align-right">{t('vol.rr25')}</th>
+                      <th className="align-right">{t('vol.bf25')}</th>
+                      <th className="align-right">{t('vol.skewJudge')}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {data.term_structure.map((t, idx) => (
+                    {data.term_structure.map((t_row, idx) => (
                       <tr key={idx} style={{ background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
-                        <td>{t.expiry_date}</td>
-                        <td className="align-right">{t.dte}</td>
+                        <td>{t_row.expiry_date}</td>
+                        <td className="align-right">{t_row.dte}</td>
                         <td className="align-right" style={{ fontWeight: 'bold' }}>
-                          {t.atm_iv != null ? `${t.atm_iv.toFixed(1)}%` : '—'}
+                          {t_row.atm_iv != null ? `${t_row.atm_iv.toFixed(1)}%` : '—'}
                         </td>
                         <td className="align-right" style={{
-                          color: t.rr25 != null && t.rr25 < -1 ? '#dc3545' : t.rr25 != null && t.rr25 > 1 ? '#28a745' : '#666'
+                          color: t_row.rr25 != null && t_row.rr25 < -1 ? '#dc3545' : t_row.rr25 != null && t_row.rr25 > 1 ? '#28a745' : '#666'
                         }}>
-                          {t.rr25 != null ? `${t.rr25.toFixed(2)}%` : '—'}
+                          {t_row.rr25 != null ? `${t_row.rr25.toFixed(2)}%` : '—'}
                         </td>
                         <td className="align-right">
-                          {t.bf25 != null ? `${t.bf25.toFixed(2)}%` : '—'}
+                          {t_row.bf25 != null ? `${t_row.bf25.toFixed(2)}%` : '—'}
                         </td>
                         <td className="align-right" style={{ fontSize: 12 }}>
-                          {t.rr25 != null
-                            ? t.rr25 < -1 ? 'Put 偏贵（看跌保护需求强）'
-                              : t.rr25 > 1 ? 'Call 偏贵（看涨需求强）'
-                              : '微笑对称'
+                          {t_row.rr25 != null
+                            ? t_row.rr25 < -1 ? t('vol.putRich')
+                              : t_row.rr25 > 1 ? t('vol.callRich')
+                              : t('vol.symmetric')
                             : '—'}
                         </td>
                       </tr>
@@ -177,13 +179,13 @@ export default function VolPanel() {
                 </table>
               </div>
               <p style={{ fontSize: 12, color: '#999', padding: '0 16px 12px' }}>
-                RR25 = Risk Reversal（25Δ Call IV − 25Δ Put IV），正值=Call 偏贵；BF25 = Butterfly（中部峰度）
+                {t('vol.rr25Note')}
               </p>
             </div>
           )}
 
           {data.term_structure.length === 0 && (
-            <div className="no-results">暂无 SVI 曲面数据，需先运行 ETL 拟合</div>
+            <div className="no-results">{t('vol.noData')}</div>
           )}
         </div>
       )}

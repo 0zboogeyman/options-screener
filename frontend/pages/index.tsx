@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { DatesResp, ExpiriesResp, ScanResp, OpinionResult } from '../types/api';
 import ResultBucket from '../components/ResultBucket';
@@ -12,12 +13,13 @@ import EtlRefreshButton from '../components/EtlRefreshButton';
 import AdSlot from '../components/AdSlot';
 import { useToast } from '../components/Toast';
 import { usePersistedState } from '../lib/usePersistedState';
+import i18n from '../lib/i18n';
 
 const API_BASE = '/api';
 
 /** 把 HTTP 错误状态转成可读文案（429 限流给出明确提示） */
-function httpError(resp: Response): Error {
-  if (resp.status === 429) return new Error('操作太频繁，请稍候再试');
+function httpError(resp: Response, t: (k: string) => string): Error {
+  if (resp.status === 429) return new Error(t('common.error429'));
   return new Error(`${resp.status} ${resp.statusText}`);
 }
 
@@ -29,6 +31,7 @@ function formatNumber(num: number, decimals: number = 2): string {
 }
 
 function OpinionResultDisplay({ result, spotPrice }: { result: OpinionResult; spotPrice: number }) {
+  const { t } = useTranslation();
   const items = result.items || [];
   const view = result.view;
   const side = result.side;
@@ -39,40 +42,50 @@ function OpinionResultDisplay({ result, spotPrice }: { result: OpinionResult; sp
   const strikeUnit = base === 'BTC' ? 1000 : 100;
   const strikeLabel = base === 'BTC' ? 'k' : '';
 
-  const viewConfig: Record<string, { title: string; description: string; ranking: string }> = {
-    up: { title: '看涨期权 - 借方价差（付权利金）', description: '小成本博取大回报', ranking: 'Top' },
-    down: { title: '看跌期权 - 借方价差（付权利金）', description: '趋势型看跌布局', ranking: 'Top' },
-    not_up: { title: '看涨期权 - 贷方价差（收权利金）', description: '最具性价比的鸭子策略', ranking: 'Bottom' },
-    not_down: { title: '看跌期权 - 贷方价差（收权利金）', description: '区间防守型策略', ranking: 'Bottom' }
+  const viewConfig: Record<string, { titleKey: string; descKey: string; ranking: string }> = {
+    up: { titleKey: 'opinion.up.title', descKey: 'opinion.up.desc', ranking: 'Top' },
+    down: { titleKey: 'opinion.down.title', descKey: 'opinion.down.desc', ranking: 'Top' },
+    not_up: { titleKey: 'opinion.not_up.title', descKey: 'opinion.not_up.desc', ranking: 'Bottom' },
+    not_down: { titleKey: 'opinion.not_down.title', descKey: 'opinion.not_down.desc', ranking: 'Bottom' }
   };
 
   const config = viewConfig[view] || viewConfig.up;
-  const anchorLabel = `${anchorLeg} 固定：${(anchorStrike / strikeUnit).toFixed(0)}${strikeLabel}`;
-  const rankingLabel = side === 'CREDIT' ? '（低赔率）' : '（高赔率）';
-  const subtitle = `${config.ranking} ${items.length}${rankingLabel} · ${anchorLabel} · ${config.description}`;
-  const horizonText = result.horizon === 'short' ? '≤1个月' : result.horizon === 'mid' ? '1-3个月' : '≥3个月';
+  const anchorLabel = t('opinion.anchorFixed', { leg: anchorLeg, strike: (anchorStrike / strikeUnit).toFixed(0), unit: strikeLabel });
+  const rankingLabel = side === 'CREDIT' ? t('opinion.lowOdds') : t('opinion.highOdds');
+  const ranking = config.ranking === 'Top' ? t('opinion.rankingTop') : t('opinion.rankingBottom');
+  const subtitle = t('opinion.subtitle', {
+    ranking,
+    count: items.length,
+    oddsLabel: rankingLabel,
+    anchor: anchorLabel,
+    desc: t(config.descKey)
+  });
+  const horizonKey = result.horizon === 'short' ? 'opinion.horizonShortLabel'
+    : result.horizon === 'mid' ? 'opinion.horizonMidLabel' : 'opinion.horizonLongLabel';
+  const horizonText = t(horizonKey);
+  const sideText = side === 'CREDIT' ? t('opinion.descCredit') : t('opinion.descDebit');
 
   return (
     <div className="opinion-result">
       <div className="opinion-result-header">
-        <h3>{config.title}</h3>
+        <h3>{t(config.titleKey)}</h3>
         <span className="opinion-result-subtitle">{subtitle}</span>
       </div>
       <p className="opinion-result-description">
-        已筛选出 {horizonText} 内到期的期权链中，{anchorLabel} 时{side === 'CREDIT' ? '胜率最高' : '赔率最高'}的策略。
-        {result.notes?.strike_snapped && ' （目标价已对齐至最近行权价）'}
+        {t('opinion.desc', { horizon: horizonText, anchor: anchorLabel, side: sideText })}
+        {result.notes?.strike_snapped ? t('opinion.strikeSnapped') : ''}
       </p>
       <div className="table-container">
         <table className="data-table">
           <thead>
             <tr>
-              <th>到期日</th>
-              <th>K1</th>
-              <th>K2</th>
-              <th>权利金 <span className="help-icon" title="价格计算规则：&#10;1. 优先使用买卖价中间价 (bid+ask)/2&#10;2. 若无买卖价，使用 Deribit mark_price&#10;3. 若仍无数据，使用单边报价 bid 或 ask&#10;&#10;数据过滤规则：&#10;1. 过滤单腿期权 spread_ratio > 0.5（买卖价差超过中间价50%）&#10;2. 过滤组合权利金 < $10（避免深度虚值期权）">i</span></th>
-              <th>最大利润</th>
-              <th>最大亏损</th>
-              <th>赔率</th>
+              <th>{t('common.expiry')}</th>
+              <th>{t('opinion.k1')}</th>
+              <th>{t('opinion.k2')}</th>
+              <th>{t('common.premium')} <span className="help-icon" title={t('common.premiumHelp')}>i</span></th>
+              <th>{t('opinion.maxProfit')}</th>
+              <th>{t('opinion.maxLoss')}</th>
+              <th>{t('opinion.odds')}</th>
             </tr>
           </thead>
           <tbody>
@@ -103,9 +116,7 @@ function OpinionResultDisplay({ result, spotPrice }: { result: OpinionResult; sp
         </table>
       </div>
       <p className="table-footer">
-        {side === 'DEBIT'
-          ? '借方价差：最大利润 = |K2 - K1| - 权利金；最大亏损 = 权利金'
-          : '贷方价差：最大利润 = 权利金收入；最大亏损 = 价差 - 权利金'}
+        {side === 'DEBIT' ? t('opinion.debitFormula') : t('opinion.creditFormula')}
       </p>
     </div>
   );
@@ -117,12 +128,14 @@ function getDaysRemaining(expiryMs: number): number {
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
-function formatExpiry(expiryMs: number): string {
-  if (expiryMs === 0) return '永续 (0天)';
+function formatExpiry(expiryMs: number, t: (k: string, opts?: any) => string): string {
+  if (expiryMs === 0) return t('expiry.perpetual');
   const date = new Date(expiryMs);
   const days = getDaysRemaining(expiryMs);
-  const dateStr = date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
-  return `${dateStr} (${days}天)`;
+  // 保持 Deribit 结算时区（业务规则），仅日期格式化随语言切换
+  const locale = i18n.language === 'en' ? 'en-US' : 'zh-CN';
+  const dateStr = date.toLocaleDateString(locale, { month: '2-digit', day: '2-digit' });
+  return t('expiry.expiryFormat', { date: dateStr, days });
 }
 
 function findWeeklyExpiry(expiries: number[]): number {
@@ -140,6 +153,7 @@ function findWeeklyExpiry(expiries: number[]): number {
 }
 
 export default function Home() {
+  const { t } = useTranslation();
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = usePersistedState<'opinion'|'expiry'|'csp'|'cc'|'ironcondor'|'strangle'|'calendar'|'vol'>('home.activeTab', 'opinion');
   const [dates, setDates] = useState<string[]>([]);
@@ -155,6 +169,7 @@ export default function Home() {
     asof_ts?: number;
     spot_price?: number;
     dvol_index?: number;
+    base?: 'BTC' | 'ETH';
   }>({});
 
   const [opinionHorizon, setOpinionHorizon] = usePersistedState<'short'|'mid'|'long'>('home.opinionHorizon', 'mid');
@@ -187,6 +202,7 @@ export default function Home() {
             asof_ts: asofData.asof_ts,
             spot_price: asofData.spot_price ?? undefined,
             dvol_index: asofData.dvol_index ?? undefined,
+            base,
           });
         }
       } catch (e: any) {
@@ -233,7 +249,7 @@ export default function Home() {
         body: JSON.stringify({ base, date, direction: 'both', tenor, return_per_bucket: 10 })
       });
 
-      if (!resp.ok) throw httpError(resp);
+      if (!resp.ok) throw httpError(resp, t);
 
       const data = await resp.json() as ScanResp;
 
@@ -242,6 +258,7 @@ export default function Home() {
         asof_ts: data.asof_ts,
         spot_price: data.spot_price || undefined,
         dvol_index: data.dvol_index || undefined,
+        base,
       });
     } catch (e: any) {
       if (e?.name === 'AbortError') return;
@@ -272,6 +289,7 @@ export default function Home() {
           asof_ts: asofData.asof_ts,
           spot_price: asofData.spot_price ?? undefined,
           dvol_index: asofData.dvol_index ?? undefined,
+          base,
         });
       }
       if (latest !== date) {
@@ -288,7 +306,7 @@ export default function Home() {
     try {
       const targetValue = parseFloat(opinionTarget);
       if (isNaN(targetValue) || targetValue <= 0) {
-        showToast('请输入有效的目标价格', 'warning');
+        showToast(t('opinion.invalidTarget'), 'warning');
         return;
       }
 
@@ -304,41 +322,47 @@ export default function Home() {
         })
       });
 
-      if (!resp.ok) throw httpError(resp);
+      if (!resp.ok) throw httpError(resp, t);
       const data: OpinionResult = await resp.json();
       setOpinionResult(data);
       setGlobalData({
         asof_ts: data.asof_ts,
         spot_price: data.spot_price || undefined,
         dvol_index: data.dvol_index || undefined,
+        base,
       });
     } catch (e: any) {
       setError(e?.message || String(e));
     } finally { setLoading(false); }
   };
 
+  const targetUnit = base === 'BTC' ? t('opinion.targetUnitBtc') : t('opinion.targetUnitEth');
+  const targetPlaceholder = base === 'BTC' ? t('opinion.placeholderBtc') : t('opinion.placeholderEth');
+  // 保持 Deribit 结算时区（业务规则），仅 locale 随语言切换
+  const bannerLocale = i18n.language === 'en' ? 'en-US' : 'zh-CN';
+
   return (
     <div className="app-container">
       <div className="header">
-        <h1>BTC/ETH期权策略扫描</h1>
+        <h1>{t('app.title')}</h1>
       </div>
 
       {globalData.asof_ts && (
         <div className="data-banner">
           <div className="data-banner-content">
             <div className="data-banner-item">
-              <strong>数据时间</strong>
-              <span className="value">{new Date(globalData.asof_ts).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}</span>
+              <strong>{t('banner.dataTime')}</strong>
+              <span className="value">{new Date(globalData.asof_ts).toLocaleString(bannerLocale, { timeZone: 'Asia/Shanghai', hour12: false })}</span>
             </div>
             {globalData.spot_price && (
               <div className="data-banner-item">
-                <strong>现货价格 ({base})</strong>
+                <strong>{t('banner.spotPrice', { base: globalData.base || base })}</strong>
                 <span className="value price">${formatNumber(globalData.spot_price, 2)}</span>
               </div>
             )}
             {globalData.dvol_index && (
               <div className="data-banner-item">
-                <strong>DVOL 指数</strong>
+                <strong>{t('banner.dvolIndex')}</strong>
                 <span className="value dvol">{globalData.dvol_index.toFixed(2)}%</span>
               </div>
             )}
@@ -350,35 +374,35 @@ export default function Home() {
       <div className="tab-navigation">
         <button className={`tab-button ${activeTab === 'opinion' ? 'active' : ''}`} onClick={() => setActiveTab('opinion')}>
           <span className="tab-icon">📊</span>
-          <span>观点</span>
+          <span>{t('tabs.opinion')}</span>
         </button>
         <button className={`tab-button ${activeTab === 'expiry' ? 'active' : ''}`} onClick={() => setActiveTab('expiry')}>
           <span className="tab-icon">📅</span>
-          <span>到期</span>
+          <span>{t('tabs.expiry')}</span>
         </button>
         <button className={`tab-button ${activeTab === 'cc' ? 'active' : ''}`} onClick={() => setActiveTab('cc')}>
           <span className="tab-icon">📈</span>
-          <span>高抛收租</span>
+          <span>{t('tabs.cc')}</span>
         </button>
         <button className={`tab-button ${activeTab === 'csp' ? 'active' : ''}`} onClick={() => setActiveTab('csp')}>
           <span className="tab-icon">💰</span>
-          <span>低吸收租</span>
+          <span>{t('tabs.csp')}</span>
         </button>
         <button className={`tab-button ${activeTab === 'ironcondor' ? 'active' : ''}`} onClick={() => setActiveTab('ironcondor')}>
           <span className="tab-icon">🦅</span>
-          <span>铁秃鹰</span>
+          <span>{t('tabs.ironcondor')}</span>
         </button>
         <button className={`tab-button ${activeTab === 'strangle' ? 'active' : ''}`} onClick={() => setActiveTab('strangle')}>
           <span className="tab-icon">⚡</span>
-          <span>宽跨式</span>
+          <span>{t('tabs.strangle')}</span>
         </button>
         <button className={`tab-button ${activeTab === 'calendar' ? 'active' : ''}`} onClick={() => setActiveTab('calendar')}>
           <span className="tab-icon">📅</span>
-          <span>日历价差</span>
+          <span>{t('tabs.calendar')}</span>
         </button>
         <button className={`tab-button ${activeTab === 'vol' ? 'active' : ''}`} onClick={() => setActiveTab('vol')}>
           <span className="tab-icon">📉</span>
-          <span>波动率</span>
+          <span>{t('tabs.vol')}</span>
         </button>
       </div>
 
@@ -398,7 +422,7 @@ export default function Home() {
         <>
           <div className="filter-grid filter-grid-4">
             <label className="filter-label">
-              <strong>标的</strong>
+              <strong>{t('common.base')}</strong>
               <select className="filter-select" value={base} onChange={e => setBase(e.target.value as 'BTC'|'ETH')}>
                 <option value="BTC">BTC</option>
                 <option value="ETH">ETH</option>
@@ -406,40 +430,40 @@ export default function Home() {
             </label>
 
             <label className="filter-label">
-              <strong>时间期限</strong>
+              <strong>{t('opinion.horizon')}</strong>
               <select className="filter-select" value={opinionHorizon} onChange={e => setOpinionHorizon(e.target.value as any)}>
-                <option value="short">短期 (≤1月)</option>
-                <option value="mid">中期 (1-3月)</option>
-                <option value="long">长期 (≥3月)</option>
+                <option value="short">{t('opinion.horizonShort')}</option>
+                <option value="mid">{t('opinion.horizonMid')}</option>
+                <option value="long">{t('opinion.horizonLong')}</option>
               </select>
             </label>
 
             <label className="filter-label">
-              <strong>观点类型</strong>
+              <strong>{t('opinion.viewType')}</strong>
               <select className="filter-select" value={opinionView} onChange={e => setOpinionView(e.target.value as any)}>
-                <option value="up">会上涨到 ≥</option>
-                <option value="down">会下跌到 ≤</option>
-                <option value="not_up">不会上涨到 ≥</option>
-                <option value="not_down">不会下跌到 ≤</option>
+                <option value="up">{t('opinion.viewUp')}</option>
+                <option value="down">{t('opinion.viewDown')}</option>
+                <option value="not_up">{t('opinion.viewNotUp')}</option>
+                <option value="not_down">{t('opinion.viewNotDown')}</option>
               </select>
             </label>
 
             <label className="filter-label">
-              <strong>目标价（{base === 'BTC' ? '千美元' : '百美元'}）</strong>
+              <strong>{t('opinion.targetPrice', { unit: targetUnit })}</strong>
               <input
                 type="text"
                 inputMode="decimal"
                 className="filter-input"
                 value={opinionTarget}
                 onChange={e => setOpinionTarget(e.target.value)}
-                placeholder={base === 'BTC' ? '例如: 135' : '例如: 55'}
+                placeholder={targetPlaceholder}
               />
             </label>
           </div>
 
-          <button className="btn-primary" onClick={doOpinionScan}>扫描策略</button>
+          <button className="btn-primary" onClick={doOpinionScan}>{t('common.scan')}</button>
 
-          {loading && <p className="loading-message">正在分析...</p>}
+          {loading && <p className="loading-message">{t('common.analyzing')}</p>}
           {error && <p className="error-message">{error}</p>}
 
           {opinionResult && opinionResult.items && (
@@ -450,7 +474,7 @@ export default function Home() {
         <>
           <div className="filter-grid filter-grid-2">
             <label className="filter-label">
-              <strong>标的资产</strong>
+              <strong>{t('expiry.baseAsset')}</strong>
               <select className="filter-select" value={base} onChange={e => setBase(e.target.value as 'BTC'|'ETH')}>
                 <option value="BTC">BTC</option>
                 <option value="ETH">ETH</option>
@@ -458,20 +482,20 @@ export default function Home() {
             </label>
 
             <label className="filter-label">
-              <strong>到期日</strong>
+              <strong>{t('expiry.expiryDate')}</strong>
               <select
                 className="filter-select"
                 value={selectedExpiry}
                 onChange={e => setSelectedExpiry(Number(e.target.value))}
               >
                 {expiries.map(exp => (
-                  <option key={exp} value={exp}>{formatExpiry(exp)}</option>
+                  <option key={exp} value={exp}>{formatExpiry(exp, t)}</option>
                 ))}
               </select>
             </label>
           </div>
 
-          {loading && <p className="loading-message">正在分析...</p>}
+          {loading && <p className="loading-message">{t('common.analyzing')}</p>}
           {error && <p className="error-message">{error}</p>}
 
           {result && result.spot_price && (
@@ -487,9 +511,9 @@ export default function Home() {
       <AdSlot id="ad-footer-top" />
 
       <div className="footer">
-        <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>仅教育用途，非投资建议，数据来源于 Deribit</div>
+        <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>{t('footer.disclaimer')}</div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-          Powered by
+          {t('footer.poweredBy')}
           <a href="https://github.com/0zBoogeyman/options-screener" target="_blank" rel="noopener noreferrer" aria-label="GitHub" style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--primary-color)' }}>
             <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor" aria-hidden="true">
               <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>

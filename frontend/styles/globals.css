@@ -1156,3 +1156,83 @@ body {
 [data-theme="dark"] ::selection {
   background: rgba(59, 130, 246, 0.3);
 }
+
+/* Language Switcher */
+.lang-switcher {
+  position: fixed;
+  top: 16px;
+  right: 68px;
+  z-index: 1000;
+}
+
+.lang-switcher-btn {
+  height: 42px;
+  min-width: 42px;
+  padding: 0 12px;
+  border-radius: 21px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  box-shadow: var(--shadow-md);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.lang-switcher-btn:hover {
+  color: var(--brand-accent);
+  border-color: var(--brand-accent);
+}
+
+.lang-switcher-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.lang-switcher-menu {
+  position: absolute;
+  top: 50px;
+  right: 0;
+  min-width: 140px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+}
+
+.lang-option {
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  transition: background 0.2s;
+}
+
+.lang-option:hover {
+  background: var(--bg-hover);
+}
+
+.lang-option.active {
+  color: var(--brand-accent);
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .lang-switcher {
+    right: 60px;
+  }
+  .lang-switcher-label {
+    display: none;
+  }
+}

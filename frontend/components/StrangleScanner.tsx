@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { StrangleResult } from '../types/api';
 import PayoffChart from './PayoffChart';
@@ -16,10 +17,11 @@ function formatNumber(num: number, decimals: number = 2): string {
 }
 
 interface Props {
-  onDataUpdate?: (data: { asof_ts: number; spot_price?: number; dvol_index?: number }) => void;
+  onDataUpdate?: (data: { asof_ts: number; spot_price?: number; dvol_index?: number; base?: 'BTC' | 'ETH' }) => void;
 }
 
 export default function StrangleScanner({ onDataUpdate }: Props) {
+  const { t } = useTranslation();
   const [base, setBase] = usePersistedState<'BTC' | 'ETH'>('st.base', 'BTC');
   const [side, setSide] = usePersistedState<'both' | 'long' | 'short'>('st.side', 'both');
   const [dteMin, setDteMin] = usePersistedState('st.dteMin', '7');
@@ -57,7 +59,7 @@ export default function StrangleScanner({ onDataUpdate }: Props) {
       });
 
       if (!resp.ok) {
-        if (resp.status === 429) throw new Error('操作太频繁，请稍候再试');
+        if (resp.status === 429) throw new Error(t('common.error429'));
         throw new Error(`${resp.status} ${resp.statusText}`);
       }
       const data: StrangleResult = await resp.json();
@@ -68,6 +70,7 @@ export default function StrangleScanner({ onDataUpdate }: Props) {
           asof_ts: data.asof_ts,
           spot_price: data.spot_price,
           dvol_index: data.dvol_index,
+          base,
         });
       }
     } catch (e: any) {
@@ -79,58 +82,58 @@ export default function StrangleScanner({ onDataUpdate }: Props) {
 
   return (
     <div className="scanner-section">
-      <h2 className="scanner-title">宽跨式（Strangle）</h2>
+      <h2 className="scanner-title">{t('strangle.title')}</h2>
       <p className="scanner-description">
-        策略说明：同到期 OTM Put + OTM Call 组合。做多波动率（买入）赌大行情，做空波动率（卖出）赌区间震荡
+        {t('strangle.description')}
       </p>
 
       <div className="filter-grid filter-grid-3">
         <label className="filter-label">
-          <strong>标的</strong>
+          <strong>{t('common.base')}</strong>
           <select className="filter-select" value={base} onChange={e => setBase(e.target.value as any)}>
             <option value="BTC">BTC</option>
             <option value="ETH">ETH</option>
           </select>
         </label>
         <label className="filter-label">
-          <strong>方向</strong>
+          <strong>{t('common.direction')}</strong>
           <select className="filter-select" value={side} onChange={e => setSide(e.target.value as any)}>
-            <option value="both">做多 + 做空</option>
-            <option value="long">仅做多波动</option>
-            <option value="short">仅做空波动</option>
+            <option value="both">{t('common.dirBoth')}</option>
+            <option value="long">{t('common.dirLong')}</option>
+            <option value="short">{t('common.dirShort')}</option>
           </select>
         </label>
         <label className="filter-label">
-          <strong>DTE 最小（天）</strong>
+          <strong>{t('common.dteMin')}</strong>
           <input type="number" className="filter-input" value={dteMin} onChange={e => setDteMin(e.target.value)} />
         </label>
         <label className="filter-label">
-          <strong>DTE 最大（天）</strong>
+          <strong>{t('common.dteMax')}</strong>
           <input type="number" className="filter-input" value={dteMax} onChange={e => setDteMax(e.target.value)} />
         </label>
         <label className="filter-label">
-          <strong>Delta 下限</strong>
+          <strong>{t('common.deltaMin')}</strong>
           <input type="number" step="0.01" className="filter-input" value={deltaMin} onChange={e => setDeltaMin(e.target.value)} />
         </label>
         <label className="filter-label">
-          <strong>Delta 上限</strong>
+          <strong>{t('common.deltaMax')}</strong>
           <input type="number" step="0.01" className="filter-input" value={deltaMax} onChange={e => setDeltaMax(e.target.value)} />
         </label>
         <label className="filter-label">
-          <strong>最小持仓量</strong>
+          <strong>{t('common.minOi')}</strong>
           <input type="number" className="filter-input" value={minOi} onChange={e => setMinOi(e.target.value)} />
         </label>
         <label className="filter-label">
-          <strong>定价模式</strong>
+          <strong>{t('common.pricingMode')}</strong>
           <select className="filter-select" value={pricingMode} onChange={e => setPricingMode(e.target.value as any)}>
-            <option value="mid">中间价</option>
-            <option value="conservative">保守价（可执行）</option>
+            <option value="mid">{t('common.pricingMid')}</option>
+            <option value="conservative">{t('common.pricingConservative')}</option>
           </select>
         </label>
       </div>
 
       <button className="btn-primary" onClick={handleScan} disabled={loading}>
-        {loading ? '扫描中...' : '扫描策略'}
+        {loading ? t('common.scanning') : t('common.scan')}
       </button>
 
       {error && <div className="error-message">{error}</div>}
@@ -140,22 +143,22 @@ export default function StrangleScanner({ onDataUpdate }: Props) {
           {result.long.length > 0 && (
             <div className="result-card" style={{ marginBottom: 16 }}>
               <h3 style={{ padding: '12px 16px', margin: 0, color: '#28a745' }}>
-                做多波动（Long Strangle）— {result.long.length} 个策略
+                {t('strangle.longTitle', { count: result.long.length })}
               </h3>
               <div className="table-container">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>到期日</th>
-                      <th className="align-right">DTE</th>
-                      <th className="align-right">Put / Call 行权价</th>
-                      <th className="align-right">成本</th>
-                      <th className="align-right">盈亏区间</th>
-                      <th className="align-right">需波动%</th>
-                      <th className="align-right">获利概率</th>
-                      <th className="align-right">成本/波动比</th>
-                      <th className="align-right">Vega/$</th>
-                      <th className="align-right">得分</th>
+                      <th>{t('common.expiry')}</th>
+                      <th className="align-right">{t('common.dte')}</th>
+                      <th className="align-right">{t('strangle.pcStrikes')}</th>
+                      <th className="align-right">{t('strangle.cost')}</th>
+                      <th className="align-right">{t('strangle.range')}</th>
+                      <th className="align-right">{t('strangle.moveRequired')}</th>
+                      <th className="align-right">{t('strangle.popProfit')}</th>
+                      <th className="align-right">{t('strangle.costRatio')}</th>
+                      <th className="align-right">{t('strangle.vegaPerDollar')}</th>
+                      <th className="align-right">{t('common.score')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -193,15 +196,15 @@ export default function StrangleScanner({ onDataUpdate }: Props) {
                             <td colSpan={10}>
                               <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', padding: '8px 16px' }}>
                                 <div>
-                                  <strong>腿详情</strong>
+                                  <strong>{t('common.legDetails')}</strong>
                                   <table style={{ fontSize: 13, marginTop: 4 }}>
                                     <thead>
-                                      <tr><th>方向</th><th>类型</th><th>行权价</th><th>价格</th><th>Delta</th><th>IV</th></tr>
+                                      <tr><th>{t('common.legDir')}</th><th>{t('common.legType')}</th><th>{t('common.legStrike')}</th><th>{t('common.legPrice')}</th><th>Delta</th><th>{t('common.legIv')}</th></tr>
                                     </thead>
                                     <tbody>
                                       {c.legs.map((l, i) => (
                                         <tr key={i}>
-                                          <td>买入</td>
+                                          <td>{t('common.buy')}</td>
                                           <td>{l.kind}</td>
                                           <td>${formatNumber(l.strike, 0)}</td>
                                           <td>{l.price.toFixed(4)}</td>
@@ -213,12 +216,12 @@ export default function StrangleScanner({ onDataUpdate }: Props) {
                                   </table>
                                 </div>
                                 <div>
-                                  <strong>Greeks</strong>
+                                  <strong>{t('common.greeks')}</strong>
                                   <div style={{ fontSize: 13, marginTop: 4 }}>
-                                    <div>净 Delta: {c.greeks.net_delta.toFixed(3)}</div>
-                                    <div>净 Vega: ${formatNumber(c.greeks.net_vega_usd, 2)}</div>
-                                    <div>净 Theta: ${formatNumber(c.greeks.net_theta_usd, 2)}/day</div>
-                                    <div style={{ marginTop: 4 }}>流动性评分: {c.liquidity_score.toFixed(2)}</div>
+                                    <div>{t('common.netDelta')}: {c.greeks.net_delta.toFixed(3)}</div>
+                                    <div>{t('common.netVega')}: ${formatNumber(c.greeks.net_vega_usd, 2)}</div>
+                                    <div>{t('common.netTheta')}: ${formatNumber(c.greeks.net_theta_usd, 2)}/day</div>
+                                    <div style={{ marginTop: 4 }}>{t('common.liquidityScore')}: {c.liquidity_score.toFixed(2)}</div>
                                   </div>
                                 </div>
                                 <div style={{ flex: '1 1 320px', minWidth: 300 }}>
@@ -246,28 +249,28 @@ export default function StrangleScanner({ onDataUpdate }: Props) {
           {result.short.length > 0 && (
             <div className="result-card">
               <h3 style={{ padding: '12px 16px', margin: 0, color: '#dc3545' }}>
-                做空波动（Short Strangle）— {result.short.length} 个策略
+                {t('strangle.shortTitle', { count: result.short.length })}
                 <span style={{ fontSize: 12, fontWeight: 'normal', marginLeft: 8, color: '#856404' }}>
-                  ⚠️ 理论亏损无限，尾部为 RND 5% 期望亏损估计
+                  {t('strangle.shortWarning')}
                 </span>
               </h3>
               <div className="table-container">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>到期日</th>
-                      <th className="align-right">DTE</th>
-                      <th className="align-right">Put / Call 行权价</th>
-                      <th className="align-right">权利金收入</th>
-                      <th className="align-right">盈亏区间</th>
-                      <th className="align-right">胜率</th>
-                      <th className="align-right">APR(保证金)</th>
-                      <th className="align-right">尾部亏损估计</th>
-                      <th className="align-right">保证金</th>
+                      <th>{t('common.expiry')}</th>
+                      <th className="align-right">{t('common.dte')}</th>
+                      <th className="align-right">{t('strangle.pcStrikes')}</th>
+                      <th className="align-right">{t('strangle.credit')}</th>
+                      <th className="align-right">{t('strangle.range')}</th>
+                      <th className="align-right">{t('strangle.winRate')}</th>
+                      <th className="align-right">{t('strangle.aprIm')}</th>
+                      <th className="align-right">{t('strangle.tailLoss')}</th>
+                      <th className="align-right">{t('strangle.margin')}</th>
                       <th className="align-right">
-                        Kelly <span className="help-icon" title="简化 Kelly 仓位建议：f* = p − q/b，显示 1/4 Kelly。&#10;p=胜率（RND），b=权利金/尾部亏损估计（RND 5% ES）。&#10;仅供参考，非投资建议。">i</span>
+                        Kelly <span className="help-icon" title={t('common.kellyHelpStrangle')}>i</span>
                       </th>
-                      <th className="align-right">得分</th>
+                      <th className="align-right">{t('common.score')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -301,7 +304,7 @@ export default function StrangleScanner({ onDataUpdate }: Props) {
                           </td>
                           <td className="align-right">${formatNumber(c.im_standard_usd, 0)}</td>
                           <td className="align-right" style={{ fontWeight: 'bold', color: quarterKelly(c.pop, c.credit_usd / c.tail_loss_est_usd).zero ? '#dc3545' : 'inherit' }}
-                            title="1/4 Kelly 建议仓位（占可用保证金）">
+                            title={t('common.kellyTitle')}>
                             {quarterKelly(c.pop, c.credit_usd / c.tail_loss_est_usd).pct}
                           </td>
                           <td className="align-right">
@@ -315,15 +318,15 @@ export default function StrangleScanner({ onDataUpdate }: Props) {
                             <td colSpan={11}>
                               <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', padding: '8px 16px' }}>
                                 <div>
-                                  <strong>腿详情</strong>
+                                  <strong>{t('common.legDetails')}</strong>
                                   <table style={{ fontSize: 13, marginTop: 4 }}>
                                     <thead>
-                                      <tr><th>方向</th><th>类型</th><th>行权价</th><th>价格</th><th>Delta</th><th>IV</th></tr>
+                                      <tr><th>{t('common.legDir')}</th><th>{t('common.legType')}</th><th>{t('common.legStrike')}</th><th>{t('common.legPrice')}</th><th>Delta</th><th>{t('common.legIv')}</th></tr>
                                     </thead>
                                     <tbody>
                                       {c.legs.map((l, i) => (
                                         <tr key={i}>
-                                          <td>卖出</td>
+                                          <td>{t('common.sell')}</td>
                                           <td>{l.kind}</td>
                                           <td>${formatNumber(l.strike, 0)}</td>
                                           <td>{l.price.toFixed(4)}</td>
@@ -335,13 +338,13 @@ export default function StrangleScanner({ onDataUpdate }: Props) {
                                   </table>
                                 </div>
                                 <div>
-                                  <strong>Greeks & 风险</strong>
+                                  <strong>{t('common.greeksRisk')}</strong>
                                   <div style={{ fontSize: 13, marginTop: 4 }}>
-                                    <div>净 Delta: {c.greeks.net_delta.toFixed(3)}</div>
-                                    <div>净 Vega: ${formatNumber(c.greeks.net_vega_usd, 2)}</div>
-                                    <div>净 Theta: ${formatNumber(c.greeks.net_theta_usd, 2)}/day</div>
+                                    <div>{t('common.netDelta')}: {c.greeks.net_delta.toFixed(3)}</div>
+                                    <div>{t('common.netVega')}: ${formatNumber(c.greeks.net_vega_usd, 2)}</div>
+                                    <div>{t('common.netTheta')}: ${formatNumber(c.greeks.net_theta_usd, 2)}/day</div>
                                     <div style={{ marginTop: 4, color: '#856404' }}>{c.risk_warning}</div>
-                                    <div>流动性评分: {c.liquidity_score.toFixed(2)}</div>
+                                    <div>{t('common.liquidityScore')}: {c.liquidity_score.toFixed(2)}</div>
                                   </div>
                                 </div>
                                 <div style={{ flex: '1 1 320px', minWidth: 300 }}>
@@ -369,7 +372,7 @@ export default function StrangleScanner({ onDataUpdate }: Props) {
       )}
 
       {result && result.long.length === 0 && result.short.length === 0 && (
-        <div className="no-results">未找到符合条件的策略，请调整筛选条件</div>
+        <div className="no-results">{t('common.noResults')}</div>
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { CSPResult } from '../types/api';
 import { quarterKelly } from '../lib/kelly';
@@ -14,10 +15,11 @@ function formatNumber(num: number, decimals: number = 2): string {
 }
 
 interface CSPScannerProps {
-  onDataUpdate?: (data: { asof_ts: number; spot_price?: number; dvol_index?: number }) => void;
+  onDataUpdate?: (data: { asof_ts: number; spot_price?: number; dvol_index?: number; base?: 'BTC' | 'ETH' }) => void;
 }
 
 export default function CSPScanner({ onDataUpdate }: CSPScannerProps) {
+  const { t } = useTranslation();
   const [base, setBase] = usePersistedState<'BTC'|'ETH'>('csp.base', 'BTC');
   const [maxDte, setMaxDte] = usePersistedState('csp.maxDte', '60');
   const [maxDelta, setMaxDelta] = usePersistedState('csp.maxDelta', '0.30');
@@ -51,7 +53,7 @@ export default function CSPScanner({ onDataUpdate }: CSPScannerProps) {
       });
 
       if (!resp.ok) {
-        if (resp.status === 429) throw new Error('操作太频繁，请稍候再试');
+        if (resp.status === 429) throw new Error(t('common.error429'));
         throw new Error(`${resp.status} ${resp.statusText}`);
       }
       const data: CSPResult = await resp.json();
@@ -62,6 +64,7 @@ export default function CSPScanner({ onDataUpdate }: CSPScannerProps) {
           asof_ts: data.asof_ts,
           spot_price: data.spot_price,
           dvol_index: data.dvol_index,
+          base,
         });
       }
     } catch (e: any) {
@@ -73,12 +76,12 @@ export default function CSPScanner({ onDataUpdate }: CSPScannerProps) {
 
   return (
     <div className="scanner-section">
-      <h2 className="scanner-title">低吸收租（担保卖 Put · CSP）</h2>
-      <p className="scanner-description">策略说明：现金担保卖出看跌期权（Put）——跌至目标价则按折扣价接币，没跌到则白收权利金</p>
+      <h2 className="scanner-title">{t('csp.title')}</h2>
+      <p className="scanner-description">{t('csp.description')}</p>
 
       <div className="filter-grid filter-grid-3">
         <label className="filter-label">
-          <strong>标的</strong>
+          <strong>{t('common.base')}</strong>
           <select className="filter-select" value={base} onChange={e => setBase(e.target.value as any)}>
             <option value="BTC">BTC</option>
             <option value="ETH">ETH</option>
@@ -86,33 +89,33 @@ export default function CSPScanner({ onDataUpdate }: CSPScannerProps) {
         </label>
 
         <label className="filter-label">
-          <strong>最大DTE（天）</strong>
+          <strong>{t('common.maxDte')}</strong>
           <input type="number" className="filter-input" value={maxDte} onChange={e => setMaxDte(e.target.value)} />
         </label>
 
         <label className="filter-label">
-          <strong>最大Delta</strong>
+          <strong>{t('common.maxDelta')}</strong>
           <input type="number" step="0.01" className="filter-input" value={maxDelta} onChange={e => setMaxDelta(e.target.value)} />
         </label>
 
         <label className="filter-label">
-          <strong>可用保证金（USD）</strong>
+          <strong>{t('csp.availableCash')}</strong>
           <input type="number" className="filter-input" value={availableCash} onChange={e => setAvailableCash(e.target.value)} />
         </label>
 
         <label className="filter-label">
-          <strong>最小持仓量</strong>
+          <strong>{t('common.minOi')}</strong>
           <input type="number" className="filter-input" value={minOi} onChange={e => setMinOi(e.target.value)} />
         </label>
 
         <label className="filter-label">
-          <strong>最大点差（bps）</strong>
+          <strong>{t('common.maxSpreadBps')}</strong>
           <input type="number" className="filter-input" value={maxSpreadBps} onChange={e => setMaxSpreadBps(e.target.value)} />
         </label>
       </div>
 
       <button className="btn-primary" onClick={handleScan} disabled={loading}>
-        {loading ? '扫描中...' : '扫描策略'}
+        {loading ? t('common.scanning') : t('common.scan')}
       </button>
 
       {error && <div className="error-message">{error}</div>}
@@ -123,20 +126,20 @@ export default function CSPScanner({ onDataUpdate }: CSPScannerProps) {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>合约</th>
-                  <th>到期日</th>
-                  <th className="align-right">行权价</th>
+                  <th>{t('common.legType')}</th>
+                  <th>{t('common.expiry')}</th>
+                  <th className="align-right">{t('common.strike')}</th>
                   <th className="align-right">Delta</th>
-                  <th className="align-right">权利金</th>
-                  <th className="align-right">盈亏平衡</th>
-                  <th className="align-right">折扣%</th>
-                  <th className="align-right">APR</th>
-                  <th className="align-right">行权概率</th>
-                  <th className="align-right">持仓量</th>
+                  <th className="align-right">{t('common.premium')}</th>
+                  <th className="align-right">{t('csp.breakeven')}</th>
+                  <th className="align-right">{t('csp.discount')}</th>
+                  <th className="align-right">{t('csp.apr')}</th>
+                  <th className="align-right">{t('csp.assignProb')}</th>
+                  <th className="align-right">{t('csp.oi')}</th>
                   <th className="align-right">
-                    Kelly <span className="help-icon" title="简化 Kelly 仓位建议：f* = p − q/b，显示 1/4 Kelly。&#10;p=1−行权概率，b=权利金/(行权价−权利金)（极端归零口径）。&#10;仅供参考，非投资建议。">i</span>
+                    Kelly <span className="help-icon" title={t('common.kellyHelpCsp')}>i</span>
                   </th>
-                  <th className="align-right">得分</th>
+                  <th className="align-right">{t('common.score')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -161,7 +164,7 @@ export default function CSPScanner({ onDataUpdate }: CSPScannerProps) {
                     <td className="align-right">{(c.assign_prob * 100).toFixed(1)}%</td>
                     <td className="align-right">{formatNumber(c.oi, 0)}</td>
                     <td className="align-right" style={{ fontWeight: 'bold', color: quarterKelly(1 - c.assign_prob, c.premium / Math.max(c.strike - c.premium, 1)).zero ? '#dc3545' : 'inherit' }}
-                      title="1/4 Kelly 建议仓位（占可用保证金）">
+                      title={t('common.kellyTitle')}>
                       {quarterKelly(1 - c.assign_prob, c.premium / Math.max(c.strike - c.premium, 1)).pct}
                     </td>
                     <td className="align-right">
@@ -178,7 +181,7 @@ export default function CSPScanner({ onDataUpdate }: CSPScannerProps) {
       )}
 
       {result && result.candidates.length === 0 && (
-        <div className="no-results">未找到符合条件的策略，请调整筛选条件</div>
+        <div className="no-results">{t('common.noResults')}</div>
       )}
     </div>
   );

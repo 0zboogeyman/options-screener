@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     # 两项都配置才启用；留空则静默跳过。
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+    # Telegram 推送语言：zh-CN / zh-TW / en
+    telegram_lang: str = "zh-CN"
+
+    # IP 地理位置识别（/api/geo 端点，用于前端多语言自动识别）。
+    # geo_enabled=False 时直接返回默认语言，不调外部 API。
+    geo_enabled: bool = True
+    geo_default_lang: str = "zh-CN"
+    geo_ipapi_url: str = "http://ip-api.com/json"
 
 
 settings = Settings()
