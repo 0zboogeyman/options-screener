@@ -124,7 +124,7 @@ Caddy 会自动申请并续期 Let's Encrypt 证书，无需额外操作。配�
 
 ## 备份与恢复
 
-数据存储在 Docker named volume `options-screener-data`：
+数据存储在 Docker named volume `option-scanner-data`：
 
 ```bash
 bash ops/etl_docker.sh backup                                # 备份

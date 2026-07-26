@@ -124,7 +124,7 @@ Caddy auto-provisions and renews Let's Encrypt certificates — no extra steps r
 
 ## Backup & Restore
 
-Data is stored in the Docker named volume `options-screener-data`:
+Data is stored in the Docker named volume `option-scanner-data`:
 
 ```bash
 bash ops/etl_docker.sh backup                                # Backup

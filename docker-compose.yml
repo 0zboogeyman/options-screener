@@ -1,4 +1,4 @@
-# Options Screener - 单容器部署
+# Option Scanner - 单容器部署
 # 构建上下文即本目录（项目根），镜像自包含，不引用任何外部路径。
 # 可变配置统一在 .env 文件；首次部署：cp .env.example .env 后按需修改。
 
@@ -7,8 +7,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.combined
-    image: options-screener:latest
-    container_name: options-screener
+    image: option-scanner:latest
+    container_name: option-scanner
     restart: unless-stopped
     init: true
     stop_grace_period: 15s
@@ -30,7 +30,7 @@ services:
         required: false
     volumes:
       # named volume：docker 自动管理属主，消除部署时权限踩坑。
-      - options-screener-data:/app/data
+      - option-scanner-data:/app/data
     ports:
       # 前端页面 + API（FastAPI 同源托管）：端口由 .env 的 PUBLIC_PORT 控制（默认 3116）。
       # 经反向代理绑域名时，把 PUBLIC_PORT 改为 "127.0.0.1:3116"。
@@ -50,5 +50,5 @@ services:
           memory: 384M
 
 volumes:
-  options-screener-data:
+  option-scanner-data:
     driver: local

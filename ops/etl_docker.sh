@@ -14,11 +14,11 @@ usage() {
 }
 
 do_etl() {
-    echo "Running ETL inside options-screener container..."
-    if docker ps --format '{{.Names}}' | grep -q "^options-screener$"; then
-        docker exec options-screener python /app/scripts/etl_daily.py
+    echo "Running ETL inside option-scanner container..."
+    if docker ps --format '{{.Names}}' | grep -q "^option-scanner$"; then
+        docker exec option-scanner python /app/scripts/etl_daily.py
     else
-        echo "ERROR: options-screener container is not running"
+        echo "ERROR: option-scanner container is not running"
         exit 1
     fi
 }
@@ -27,8 +27,8 @@ do_backup() {
     mkdir -p "$BACKUP_DIR"
     TIMESTAMP=$(date +%Y%m%d-%H%M%S)
     ARCHIVE="$BACKUP_DIR/data-$TIMESTAMP.tar.gz"
-    echo "Creating backup of options-screener-data volume: $ARCHIVE"
-    docker run --rm -v options-screener-data:/data -v "$PROJECT_DIR":/backup alpine \
+    echo "Creating backup of option-scanner-data volume: $ARCHIVE"
+    docker run --rm -v option-scanner-data:/data -v "$PROJECT_DIR":/backup alpine \
         tar czf "/backup/backups/data-$TIMESTAMP.tar.gz" -C /data .
     echo "Backup complete: $(du -h "$ARCHIVE" | cut -f1)"
 
@@ -44,9 +44,9 @@ do_restore() {
     fi
     echo "Restoring from: $ARCHIVE"
     docker compose down 2>/dev/null || true
-    docker volume rm options-screener-data 2>/dev/null || true
+    docker volume rm option-scanner-data 2>/dev/null || true
     REL="${ARCHIVE#$PROJECT_DIR/}"
-    docker run --rm -v options-screener-data:/data -v "$PROJECT_DIR":/backup alpine \
+    docker run --rm -v option-scanner-data:/data -v "$PROJECT_DIR":/backup alpine \
         tar xzf "/backup/$REL" -C /data
     docker compose up -d
     echo "Restore complete."
