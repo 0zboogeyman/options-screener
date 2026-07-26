@@ -53,6 +53,7 @@ docker compose up -d --build  # 构建并后台启动
 | `ADMIN_TOKEN`           | 手动 ETL 口令（`X-Admin-Token` 头校验；公网必填）               | 空（放行）           |
 | `TELEGRAM_BOT_TOKEN`    | Telegram Bot token（配合 chat_id 启用推送）               | 空（禁用）           |
 | `TELEGRAM_CHAT_ID`      | Telegram 接收人/群组 chat_id                           | 空（禁用）           |
+| `TELEGRAM_LANG`         | Telegram 推送语言：`zh-CN` / `zh-TW` / `en`            | `zh-CN`         |
 | `GEO_ENABLED`           | IP 地理位置识别开关（`false` 则直接返回默认语言）                    | `true`          |
 | `GEO_DEFAULT_LANG`      | 地理识别失败时的默认语言                                      | `zh-CN`         |
 
@@ -83,6 +84,7 @@ ADMIN_TOKEN=你的随机口令
 TELEGRAM_BOT_TOKEN=123456:ABC-DEF...   # @BotFather /newbot 获取
 TELEGRAM_CHAT_ID=123456789             # 先给 bot 发任意消息，再访问
                                        # https://api.telegram.org/bot<TOKEN>/getUpdates 查 chat.id
+TELEGRAM_LANG=zh-CN                    # 推送语言：zh-CN / zh-TW / en
 ```
 
 两项都填才启用，留空则静默跳过。手动触发的 ETL 不会推送（避免同日重复打扰）。

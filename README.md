@@ -53,6 +53,7 @@ All variables have source-code defaults; leaving them blank uses the default.
 | `ADMIN_TOKEN`           | Manual ETL token (verified via `X-Admin-Token` header; required on public network) | empty (allow all) |
 | `TELEGRAM_BOT_TOKEN`    | Telegram Bot token (enables push when combined with chat_id)                       | empty (disabled)  |
 | `TELEGRAM_CHAT_ID`      | Telegram recipient/group chat_id                                                   | empty (disabled)  |
+| `TELEGRAM_LANG`         | Telegram push language: `zh-CN` / `zh-TW` / `en`                                   | `zh-CN`           |
 | `GEO_ENABLED`           | IP geolocation switch (`false` returns the default language directly)              | `true`            |
 | `GEO_DEFAULT_LANG`      | Default language when geolocation fails                                            | `zh-CN`           |
 
@@ -83,6 +84,7 @@ After each scheduled ETL run, the top strategies are auto-pushed. Alerts are als
 TELEGRAM_BOT_TOKEN=123456:ABC-DEF...   # Get from @BotFather /newbot
 TELEGRAM_CHAT_ID=123456789             # Send any message to the bot first, then visit
                                        # https://api.telegram.org/bot<TOKEN>/getUpdates to find chat.id
+TELEGRAM_LANG=zh-CN                    # Push language: zh-CN / zh-TW / en
 ```
 
 Both fields must be filled to enable; if either is empty, push is silently skipped. Manual ETL triggers do not push (avoids same-day duplicates).
