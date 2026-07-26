@@ -1,6 +1,6 @@
 **English** | [简体中文](README_zh.md)
 
-# Options Screener
+# Option Scanner
 
 > A multi-strategy scanner built on Deribit options data — covering vertical spreads, single-leg income strategies, iron condors, strangles, calendar spreads, and more.
 

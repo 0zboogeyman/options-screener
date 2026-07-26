@@ -1,6 +1,6 @@
 [English](README.md) | **简体中文**
 
-# Options Screener
+# Option Scanner
 
 > 基于 Deribit 期权数据的多策略扫描工具——包括垂直价差、单腿收租、铁秃鹰、宽跨式、日历价差等策略。
 

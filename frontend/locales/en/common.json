@@ -1,7 +1,7 @@
 {
   "app": {
-    "title": "BTC/ETH Options Strategy Screener",
-    "description": "Smart options strategy screener powered by Deribit options data"
+    "title": "BTC/ETH Options Strategy Scanner",
+    "description": "Smart options strategy scanner powered by Deribit options data"
   },
   "lang": {
     "aria": "Switch language",

@@ -66,7 +66,7 @@ def _frontend_dist() -> Path:
 def create_app() -> FastAPI:
     docs_enabled = settings.api_docs_enabled
     app = FastAPI(
-        title="Options Screener API",
+        title="Option Scanner API",
         version="0.2.0",
         docs_url="/docs" if docs_enabled else None,
         redoc_url="/redoc" if docs_enabled else None,

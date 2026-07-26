@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.6
 # =============================================================================
-# Options Screener - 单容器镜像（自包含项目根）
+# Option Scanner - 单容器镜像（自包含项目根）
 # -----------------------------------------------------------------------------
 # 前端为 Next.js 静态导出（output:export，纯 HTML/JS/CSS），
 # 由 FastAPI StaticFiles 同源托管；容器内只有 uvicorn 一个 Web 进程，
