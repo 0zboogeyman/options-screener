@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 
 # 打标阈值：买卖价差超过中间价 15% 标记为 wide_spread（quality flag）。
-# 注意与 scanner 中的过滤阈值 SPREAD_RATIO_MAX=0.5 语义不同：
-# 0.15 用于给单腿"贴标签"，0.5 用于在扫描时"剔除不可用腿"。
+# 注意与 scanner 中的过滤阈值 SPREAD_RATIO_MAX=0.35 语义不同：
+# 0.15 用于给单腿"贴标签"，0.35 用于在扫描时"剔除不可用腿"。
 WIDE_SPREAD_THRESHOLD = 0.15
 
 _REQUIRED_COLS = [

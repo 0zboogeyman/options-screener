@@ -185,8 +185,9 @@ def _daily_picks_for_base(date: str, base: str) -> List[str]:
     lines: List[str] = []
     dvol_txt = f"{meta.dvol_index:.1f}%" if meta.dvol_index else "—"
     ivp_txt = f"{ivp * 100:.0f}%" if ivp is not None else "—"
+    spot_txt = f"${meta.spot_price:,.0f}" if meta.spot_price else "—"
     lines.append(f"📊 {base} {_t('daily_picks')}（{date}）")
-    lines.append(f"{_t('spot')} ${meta.spot_price:,.0f} · DVOL {dvol_txt} · IVP {ivp_txt}")
+    lines.append(f"{_t('spot')} {spot_txt} · DVOL {dvol_txt} · IVP {ivp_txt}")
 
     try:
         ic = scan_iron_condor(chain, meta, svi, return_count=2, ivp=ivp)

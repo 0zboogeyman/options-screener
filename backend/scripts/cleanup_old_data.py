@@ -1,36 +1,24 @@
 #!/usr/bin/env python3
+"""历史分区清理脚本（可手动执行）。
+
+复用 etl_daily.cleanup_old_partitions 的清理规则：
+  * 同一天存在多个小时分区（手动多次触发 ETL）时只保留最新一个；
+  * 分区时间早于 当前时间 - backup_retention_days 的整目录删除。
+
+注意：早期版本曾错误地删除所有非当天分区（保留 1 天），导致历史数据
+（SVI 期限结构 / IVP / IVR 计算依赖的历史窗口）全部丢失。此版本按
+backup_retention_days（默认 30 天）保留足够历史，供 IVR 等指标冷启动。
+"""
 from __future__ import annotations
 
-import shutil
-from datetime import datetime, timezone
-from pathlib import Path
-
 from app.core.config import settings
+from scripts import etl_daily
 
-DATA_ROOT = settings.data_root
 
-
-def cleanup_old_data():
-    today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
-
-    deleted_count = 0
-    for target_dir in DATA_ROOT.glob("dt=*"):
-        if not target_dir.is_dir():
-            continue
-
-        dir_name = target_dir.name.split("=", 1)[1]
-        dir_date = dir_name[:10] if len(dir_name) >= 10 else dir_name
-
-        if dir_date != today:
-            shutil.rmtree(target_dir)
-            print(f"[CLEANUP] Deleted: {target_dir}")
-            deleted_count += 1
-
-    if deleted_count == 0:
-        print(f"[CLEANUP] No old data found (keeping today: {today})")
-    else:
-        print(f"[CLEANUP] Total deleted: {deleted_count} directories (kept today: {today})")
+def main() -> None:
+    keep_days = settings.backup_retention_days
+    etl_daily.cleanup_old_partitions(keep_days)
 
 
 if __name__ == "__main__":
-    cleanup_old_data()
+    main()

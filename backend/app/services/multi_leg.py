@@ -32,6 +32,7 @@ from .rnd import (
     prob_between as rnd_prob_between,
     prob_ge as rnd_prob_ge,
     rnd_from_svi,
+    rnd_is_valid,
 )
 from .scanner import SPREAD_RATIO_MAX
 from .single_leg import _normalize_score
@@ -40,6 +41,9 @@ from .svi import svi_iv
 logger = logging.getLogger(__name__)
 
 MS_PER_DAY = 1000 * 60 * 60 * 24
+
+# 综合评分低于该阈值的候选直接不展示（需求：评分 45 分以下的策略过滤掉）
+MIN_SCORE = 45.0
 
 # 评分权重（字段, 权重, 是否取反）
 IC_SCORE_WEIGHTS: Tuple = (
@@ -119,7 +123,7 @@ def _exec_prices(grp: pd.DataFrame, pricing_mode: str) -> Tuple[np.ndarray, np.n
     return buy, sell
 
 
-def _leg_dict(row: pd.Series, option_kind: str, side: str, price: float) -> Dict:
+def _leg_dict(row: pd.Series, option_kind: str, side: str, price: float, t_years: float) -> Dict:
     return {
         "instrument": row["instrument"],
         "kind": option_kind,   # "PUT" / "CALL"
@@ -130,6 +134,7 @@ def _leg_dict(row: pd.Series, option_kind: str, side: str, price: float) -> Dict
         "iv": float(row["svi_iv"]),
         "oi": float(row["oi"]) if np.isfinite(row.get("oi", np.nan)) else 0.0,
         "spread_bps": float(row["spread_ratio"]) * 10000,
+        "t_years": t_years,
     }
 
 
@@ -158,6 +163,7 @@ def _net_greeks(legs: List[Dict], s: float) -> Dict:
 
 
 def _apply_scores(candidates: List[Dict], weights: Tuple) -> None:
+    """加权打分 → 写入 c["score"] → 降序排序 → 过滤掉评分低于 MIN_SCORE 的候选（原地）。"""
     totals = [0.0] * len(candidates)
     for key, weight, invert in weights:
         raw = []
@@ -172,6 +178,7 @@ def _apply_scores(candidates: List[Dict], weights: Tuple) -> None:
     for i, c in enumerate(candidates):
         c["score"] = round(totals[i] * 100, 1)
     candidates.sort(key=lambda x: x["score"], reverse=True)
+    candidates[:] = [c for c in candidates if c["score"] >= MIN_SCORE]
 
 
 def _empty_result(meta, chain_df, strategy: str, **extra) -> Dict:
@@ -238,6 +245,8 @@ def scan_iron_condor(
         s = float(grp["forward"].iloc[0])
         t_years = float(grp["t_years"].iloc[0])
         rnd = rnd_from_svi(params, t_years, s)
+        if not rnd_is_valid(rnd):
+            continue
         buy_px, sell_px = _exec_prices(grp, pricing_mode)
 
         puts = grp[grp["option_type"].str.upper() == "P"].reset_index(drop=True)
@@ -300,13 +309,11 @@ def scan_iron_condor(
                     continue
 
                 legs = [
-                    _leg_dict(pspr["long_row"], "PUT", "buy", pspr["long_px"]),
-                    _leg_dict(pspr["short_row"], "PUT", "sell", pspr["short_px"]),
-                    _leg_dict(cspr["short_row"], "CALL", "sell", cspr["short_px"]),
-                    _leg_dict(cspr["long_row"], "CALL", "buy", cspr["long_px"]),
+                    _leg_dict(pspr["long_row"], "PUT", "buy", pspr["long_px"], t_years),
+                    _leg_dict(pspr["short_row"], "PUT", "sell", pspr["short_px"], t_years),
+                    _leg_dict(cspr["short_row"], "CALL", "sell", cspr["short_px"], t_years),
+                    _leg_dict(cspr["long_row"], "CALL", "buy", cspr["long_px"], t_years),
                 ]
-                for l in legs:
-                    l["t_years"] = t_years
                 mg = margin_mod.margin_iron_condor(
                     s,
                     legs[0]["strike"], legs[1]["strike"],
@@ -397,6 +404,8 @@ def scan_strangle(
         s = float(grp["forward"].iloc[0])
         t_years = float(grp["t_years"].iloc[0])
         rnd = rnd_from_svi(params, t_years, s)
+        if not rnd_is_valid(rnd):
+            continue
         buy_px, sell_px = _exec_prices(grp, pricing_mode)
         grp = grp.assign(_buy=buy_px, _sell=sell_px)
 
@@ -417,11 +426,9 @@ def scan_strangle(
         for _, pr in puts.iterrows():
             for _, cr in calls.iterrows():
                 legs_long = [
-                    _leg_dict(pr, "PUT", "buy", float(pr["_buy"])),
-                    _leg_dict(cr, "CALL", "buy", float(cr["_buy"])),
+                    _leg_dict(pr, "PUT", "buy", float(pr["_buy"]), t_years),
+                    _leg_dict(cr, "CALL", "buy", float(cr["_buy"]), t_years),
                 ]
-                for l in legs_long:
-                    l["t_years"] = t_years
                 k_put, k_call = legs_long[0]["strike"], legs_long[1]["strike"]
 
                 if side in ("both", "long"):
@@ -448,11 +455,9 @@ def scan_strangle(
 
                 if side in ("both", "short"):
                     legs_short = [
-                        _leg_dict(pr, "PUT", "sell", float(pr["_sell"])),
-                        _leg_dict(cr, "CALL", "sell", float(cr["_sell"])),
+                        _leg_dict(pr, "PUT", "sell", float(pr["_sell"]), t_years),
+                        _leg_dict(cr, "CALL", "sell", float(cr["_sell"]), t_years),
                     ]
-                    for l in legs_short:
-                        l["t_years"] = t_years
                     credit = legs_short[0]["price"] + legs_short[1]["price"]
                     credit_usd = credit * s
                     if credit_usd > 0:
@@ -588,11 +593,9 @@ def scan_calendar(
                 vg_far = float(vega_vec(s, k_strike, float(rf["svi_iv"]), t_far))
 
                 legs = [
-                    _leg_dict(rn, kind, "sell", sell_px),
-                    _leg_dict(rf, kind, "buy", buy_px),
+                    _leg_dict(rn, kind, "sell", sell_px, t_near),
+                    _leg_dict(rf, kind, "buy", buy_px, t_far),
                 ]
-                legs[0]["t_years"] = t_near
-                legs[1]["t_years"] = t_far
 
                 # 近月到期 P&L 数值求解：S_T 网格 ±3σ（近月 ATM 预期波动）
                 zone = _calendar_profit_zone(

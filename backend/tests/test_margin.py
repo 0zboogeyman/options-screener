@@ -1,6 +1,7 @@
 """Deribit 保证金公式测试（手算样例对照）。"""
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from app.services.margin import (
@@ -9,6 +10,7 @@ from app.services.margin import (
     margin_iron_condor,
     margin_strangle_short,
     margin_vertical_credit,
+    mm_short_call,
     mm_short_put,
 )
 
@@ -65,3 +67,11 @@ def test_strangle_short_no_max_loss():
     assert out["credit"] == pytest.approx(0.010)
     assert out["im_standard"] == pytest.approx(0.105 + 0.105)
     assert out["roi_on_im"] == pytest.approx(0.010 / 0.21)
+
+
+def test_negative_mark_returns_nan():
+    """负权利金（异常报价）时保证金返回 NaN，避免产出无意义数值污染下游。"""
+    assert np.isnan(im_short_call(S, 110000.0, -0.005))
+    assert np.isnan(im_short_put(S, 90000.0, -0.005))
+    assert np.isnan(mm_short_call(-1.0))
+    assert np.isnan(mm_short_put(-1.0))

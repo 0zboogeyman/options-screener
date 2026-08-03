@@ -133,6 +133,7 @@ def scan_buckets(
     svi_surface: Dict[int, Dict] | None = None,
     pricing_mode: str = "mid",
 ):
+    max_gap_steps = min(int(max_gap_steps), DEFAULT_MAX_GAP_STEPS)
     df = prep_chain(chain_df)
     asof = int(meta.asof_ts)
     date = meta.date
@@ -239,8 +240,11 @@ def scan_buckets(
             top_d, bot_d = _rank(legs_debit)
             top_c, bot_c = _rank(legs_credit)
 
-            out_buckets.append({"leg_type": kind, "side": "DEBIT", "top": top_d, "bottom": bot_d})
-            out_buckets.append({"leg_type": kind, "side": "CREDIT", "top": top_c, "bottom": bot_c})
+            expiry_date = pd.Timestamp(exp_ts, unit="ms").strftime("%Y-%m-%d")
+            out_buckets.append({"leg_type": kind, "side": "DEBIT", "top": top_d, "bottom": bot_d,
+                                "expiry_ts": int(exp_ts), "expiry_date": expiry_date})
+            out_buckets.append({"leg_type": kind, "side": "CREDIT", "top": top_c, "bottom": bot_c,
+                                "expiry_ts": int(exp_ts), "expiry_date": expiry_date})
 
     if direction == "up":
         filtered = [b for b in out_buckets if b["leg_type"] == "CALL"]
@@ -292,6 +296,7 @@ def scan_opinion_spreads(
     svi_surface: Dict[int, Dict] | None = None,
     pricing_mode: str = "mid",
 ):
+    max_gap_steps = min(int(max_gap_steps), DEFAULT_MAX_GAP_STEPS)
     df = prep_chain(chain_df)
     asof = int(meta.asof_ts)
     date = meta.date

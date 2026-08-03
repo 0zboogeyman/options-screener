@@ -8,7 +8,6 @@ import LanguageSwitcher from '../components/LanguageSwitcher';
 import I18nBootstrap from '../components/I18nBootstrap';
 import { ToastProvider } from '../components/Toast';
 import DisclaimerModal from '../components/DisclaimerModal';
-import SiteScripts from '../components/SiteScripts';
 import '../styles/globals.css';
 
 export default function MyApp({ Component, pageProps }: AppProps) {
@@ -24,7 +23,6 @@ export default function MyApp({ Component, pageProps }: AppProps) {
         <I18nBootstrap />
         <Component {...pageProps} />
         <DisclaimerModal />
-        <SiteScripts />
       </ToastProvider>
     </ThemeProvider>
   );

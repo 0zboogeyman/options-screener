@@ -40,7 +40,9 @@ class Settings(BaseSettings):
 
     graceful_shutdown_timeout: int = 15
 
-    backup_retention_days: int = 7
+    # 数据分区保留天数：过短会清掉 IVP/IVR 依赖的历史窗口（IVR 至少需 30 天），
+    # 过长则磁盘持续膨胀；30 天在两者间平衡。
+    backup_retention_days: int = 30
 
     data_stale_hours: int = 25
 

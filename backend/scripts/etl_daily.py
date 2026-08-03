@@ -81,7 +81,7 @@ class EtlAlreadyRunningError(RuntimeError):
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=15),
-    retry=retry_if_exception_type((httpx.HTTPError, httpx.TimeoutException)),
+    retry=retry_if_exception_type((httpx.HTTPError, httpx.TimeoutException, ValueError)),
     reraise=True,
 )
 async def fetch_book_summary(client: httpx.AsyncClient, currency: str) -> List[Dict]:
@@ -98,7 +98,7 @@ async def fetch_book_summary(client: httpx.AsyncClient, currency: str) -> List[D
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=15),
-    retry=retry_if_exception_type((httpx.HTTPError, httpx.TimeoutException)),
+    retry=retry_if_exception_type((httpx.HTTPError, httpx.TimeoutException, ValueError)),
     reraise=True,
 )
 async def fetch_instruments(client: httpx.AsyncClient, currency: str) -> Dict[str, Dict]:
@@ -118,7 +118,7 @@ async def fetch_instruments(client: httpx.AsyncClient, currency: str) -> Dict[st
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=15),
-    retry=retry_if_exception_type((httpx.HTTPError, httpx.TimeoutException)),
+    retry=retry_if_exception_type((httpx.HTTPError, httpx.TimeoutException, ValueError)),
     reraise=True,
 )
 async def fetch_index_price(client: httpx.AsyncClient, currency: str) -> float:
@@ -142,6 +142,20 @@ async def run_once(date_str: str, bases: List[str], notify: bool = False) -> Non
         await _run_once_locked(date_str, bases)
     finally:
         lock.release()
+
+    # DVOL 日更：放在锁外执行，避免回填期间持续占用 ETL 互斥锁阻塞其他写入。
+    # 顺带回填最近 7 天（按 (base, ts) 幂等去重），保持 IVP 序列新鲜。
+    # 全量历史回填由 scripts/backfill_dvol.py 一次性执行。
+    try:
+        from scripts.backfill_dvol import backfill_base
+        async with httpx.AsyncClient() as client:
+            for base in bases:
+                try:
+                    await backfill_base(client, base, days=7)
+                except Exception:
+                    logger.error("DVOL daily update failed for %s", base, exc_info=True)
+    except Exception:
+        logger.error("DVOL daily update skipped", exc_info=True)
 
     # Telegram 推送（仅定时触发带 notify=True；手动刷新不打扰、避免同日重复推）。
     # 推送失败绝不反哺异常——通知是附属能力，不能影响 ETL 结果语义。
@@ -223,7 +237,8 @@ async def _run_once_locked(date_str: str, bases: List[str]) -> None:
         "date": date_str,
         "timestamp": timestamp_str,
         "asof_ts": asof_ts,
-        "bases": bases,
+        # 仅记录实际成功写出 parquet 的 base，避免 manifest 误报未成功 base。
+        "bases": [],
         "rows": 0,
         "expiries": {},
         "spot_prices": spot_prices,
@@ -252,22 +267,22 @@ async def _run_once_locked(date_str: str, bases: List[str]) -> None:
             }
         )
 
+        # 跳过未在 instruments 列表中的合约：ins_map.get(name) is None 时直接丢弃该行，
+        # 避免向下游写出 strike=0 / expiry=0 的脏数据。
+        df = df[df["instrument"].map(lambda name: ins_map.get(name) is not None)].reset_index(drop=True)
+        if df.empty:
+            continue
+
         strikes: List[float] = []
         types: List[str] = []
         expiries: List[int] = []
         bases_parsed: List[str] = []
         for name in df["instrument"].tolist():
             meta = ins_map.get(name)
-            if meta:
-                strikes.append(float(meta.get("strike")))
-                types.append("C" if str(meta.get("option_type", "")).lower().startswith("c") else "P")
-                expiries.append(int(meta.get("expiration_timestamp")))
-                bases_parsed.append(str(meta.get("base_currency", base)))
-            else:
-                strikes.append(0.0)
-                types.append("P")
-                expiries.append(0)
-                bases_parsed.append(base)
+            strikes.append(float(meta.get("strike")))
+            types.append("C" if str(meta.get("option_type", "")).lower().startswith("c") else "P")
+            expiries.append(int(meta.get("expiration_timestamp")))
+            bases_parsed.append(str(meta.get("base_currency", base)))
 
         df["strike"] = strikes
         df["option_type"] = types
@@ -293,6 +308,7 @@ async def _run_once_locked(date_str: str, bases: List[str]) -> None:
             os.replace(tmp_parquet, out_dir / "chain.parquet")
 
         manifest["expiries"][base] = sorted(list(exp_map.keys()))
+        manifest["bases"].append(base)
         total_rows += int(df.shape[0])
 
         # SVI 拟合：逐到期切片（dte>=3 天），结果落 vol/history.parquet。
@@ -337,19 +353,6 @@ async def _run_once_locked(date_str: str, bases: List[str]) -> None:
     logger.info("ETL complete rows=%d bases=%s", total_rows, bases)
 
     cleanup_old_partitions(settings.backup_retention_days)
-
-    # DVOL 日更：顺带回填最近 7 天（按 (base, ts) 幂等去重），保持 IVP 序列新鲜。
-    # 全量历史回填由 scripts/backfill_dvol.py 一次性执行。
-    try:
-        from scripts.backfill_dvol import backfill_base
-        async with httpx.AsyncClient() as client:
-            for base in bases:
-                try:
-                    await backfill_base(client, base, days=7)
-                except Exception:
-                    logger.error("DVOL daily update failed for %s", base, exc_info=True)
-    except Exception:
-        logger.error("DVOL daily update skipped", exc_info=True)
 
 
 def cleanup_old_partitions(keep_days: int) -> None:

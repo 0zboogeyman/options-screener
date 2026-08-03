@@ -11,6 +11,9 @@ from .preprocessing import prep_chain
 
 logger = logging.getLogger(__name__)
 
+# 综合评分低于该阈值的候选直接不展示（需求：评分 45 分以下的策略过滤掉）
+MIN_SCORE = 45.0
+
 # 综合评分权重（字段, 权重, 是否取反后再归一）。两策略权重结构一致，
 # 仅参与字段不同；调整策略偏好时只需改这里。
 CSP_SCORE_WEIGHTS: Tuple[Tuple[str, float, bool], ...] = (
@@ -70,6 +73,7 @@ def _filter_chain(chain_df: pd.DataFrame, meta, option_type: str,
 
     df["dte"] = (df["expiry_ts"] - asof) / (1000 * 60 * 60 * 24)
     df = df[(df["dte"] <= max_dte) & (df["dte"] > 0)].copy()
+    df = df[df["dte"] >= 1].copy()
 
     if min_oi > 0:
         df = df[df["oi"].fillna(0) >= min_oi].copy()
@@ -81,7 +85,8 @@ def _filter_chain(chain_df: pd.DataFrame, meta, option_type: str,
 
 def _apply_scores(candidates: List[Dict],
                   weights: Tuple[Tuple[str, float, bool], ...]) -> None:
-    """按 (字段, 权重, 取反) 规格对候选加权打分，结果写入 c["score"] 并原地降序排序。"""
+    """按 (字段, 权重, 取反) 规格对候选加权打分，结果写入 c["score"] 并原地降序排序；
+    排序后过滤掉评分低于 MIN_SCORE 的候选（原地裁剪）。"""
     totals = [0.0] * len(candidates)
     for key, weight, invert in weights:
         raw = [(1.0 - c[key]) if invert else c[key] for c in candidates]
@@ -91,6 +96,7 @@ def _apply_scores(candidates: List[Dict],
     for i, c in enumerate(candidates):
         c["score"] = round(totals[i] * 100, 1)
     candidates.sort(key=lambda x: x["score"], reverse=True)
+    candidates[:] = [c for c in candidates if c["score"] >= MIN_SCORE]
 
 
 def scan_csp(
@@ -111,6 +117,8 @@ def scan_csp(
         "max_spread_bps": max_spread_bps, "available_cash": available_cash,
     }
 
+    if not spot:
+        return _empty_single_result(meta, df, "CSP", dvol_index=meta.dvol_index, filters=filters)
     if df.empty:
         return _empty_single_result(meta, df, "CSP", dvol_index=meta.dvol_index, filters=filters)
 
@@ -139,7 +147,7 @@ def scan_csp(
     filtered_idx = np.where(mask)[0]
 
     premiums = mids * spot
-    breakevens = strikes - mids
+    breakevens = strikes - premiums
     discount_pcts = (spot - breakevens) / spot
     aprs = np.where(strikes > 0, (premiums / strikes) * (365.0 / dtes), 0)
     liq_scores = np.log1p(ois) / (1 + spread_bps / 100)
@@ -202,6 +210,8 @@ def scan_cc(
         "max_spread_bps": max_spread_bps, "position_size": position_size,
     }
 
+    if not spot:
+        return _empty_single_result(meta, df, "CC", dvol_index=meta.dvol_index, filters=filters)
     if df.empty:
         return _empty_single_result(meta, df, "CC", dvol_index=meta.dvol_index, filters=filters)
 

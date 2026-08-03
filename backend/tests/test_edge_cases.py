@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from app.services.bs import (
     delta_call_vec,
@@ -180,3 +181,27 @@ class TestRndExtreme:
         params = dict(a=0.01, b=0.05, rho=-0.3, m=0.0, sigma=1e-4, atm_iv=0.4)
         rnd = rnd_from_svi(params, t_years=30 / 365, forward=64000.0)
         assert np.all(np.isfinite(rnd.pdf))
+
+
+# ---------------------------------------------------------------------------
+# loader 数据层校验（base 白名单 / 非法日期目录过滤）
+# ---------------------------------------------------------------------------
+
+class TestLoaderValidation:
+    def test_load_chain_rejects_invalid_base(self):
+        """非 BTC/ETH 的 base 在校验阶段即抛 ValueError，不触发磁盘 IO。"""
+        from app.services import loader
+
+        with pytest.raises(ValueError):
+            loader.load_chain_for(date="2026-07-26", base="XRP")
+
+    def test_list_available_dates_filters_invalid(self, monkeypatch, tmp_path):
+        """非法格式目录名（非 YYYY-MM-DD 前缀）不应污染可用日期列表。"""
+        from app.services import loader
+
+        monkeypatch.setattr(loader, "DATA_ROOT", tmp_path)
+        (tmp_path / "dt=2026-07-26-08").mkdir()
+        (tmp_path / "dt=2026-07-25-06").mkdir()
+        (tmp_path / "dt=garbage").mkdir()
+        dates = loader.list_available_dates()
+        assert dates == ["2026-07-25", "2026-07-26"]

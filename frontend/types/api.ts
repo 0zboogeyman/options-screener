@@ -14,6 +14,8 @@ export type Bucket = {
   side: "DEBIT" | "CREDIT";
   top: ScanLeg[];
   bottom: ScanLeg[];
+  expiry_ts?: number;      // bucket 所属到期（后端按 expiry 分组）
+  expiry_date?: string;
 };
 
 export type ScanResp = {

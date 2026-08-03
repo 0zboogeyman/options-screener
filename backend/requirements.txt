@@ -5,11 +5,11 @@ starlette==1.0.1
 uvicorn[standard]==0.49.0
 pydantic==2.13.4
 pydantic-settings==2.14.2
-pandas==2.2.2
+pandas==2.2.3
 pyarrow==16.1.0
 numpy==1.26.4
 scipy==1.13.1
-httpx==0.27.0
+httpx==0.28.1
 python-dateutil==2.9.0.post0
 slowapi==0.1.10
 tenacity==9.1.4

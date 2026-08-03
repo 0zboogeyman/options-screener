@@ -129,7 +129,10 @@ def _strike_at_call_delta(params: Dict, t_years: float, target_call_delta: float
     lo, hi = -2.5, 2.5
     f_lo, f_hi = d1_at(lo) - d1_target, d1_at(hi) - d1_target
     if f_lo * f_hi > 0:
-        return None
+        lo, hi = -4.0, 4.0
+        f_lo, f_hi = d1_at(lo) - d1_target, d1_at(hi) - d1_target
+        if f_lo * f_hi > 0:
+            return None
     for _ in range(80):
         mid = 0.5 * (lo + hi)
         f_mid = d1_at(mid) - d1_target
@@ -202,7 +205,7 @@ def fit_svi_slice(
         try:
             sol = least_squares(resid, x0, bounds=(_LOWER, _UPPER), method="trf",
                                 x_scale="jac", max_nfev=5000)
-        except Exception:
+        except (ValueError, RuntimeError):
             continue
         if not sol.success:
             continue

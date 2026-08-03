@@ -28,17 +28,21 @@ MM_LEVEL = 0.075         # 维持保证金率
 
 def mm_short_call(mark: float) -> float:
     """裸卖 Call 维持保证金（币种）。"""
+    if mark < 0:
+        return float("nan")
     return MM_LEVEL + mark
 
 
 def mm_short_put(mark: float) -> float:
     """裸卖 Put 维持保证金（币种）。"""
+    if mark < 0:
+        return float("nan")
     return max(MM_LEVEL, MM_LEVEL * mark) + mark
 
 
 def im_short_call(s: float, k: float, mark: float) -> float:
     """裸卖 Call 初始保证金（币种）：max(0.15 − OTM 幅度, 0.10) + mark。"""
-    if s <= 0 or k <= 0:
+    if s <= 0 or k <= 0 or mark < 0:
         return float("nan")
     otm_pct = max((k - s) / s, 0.0)
     return max(IM_LEVEL - otm_pct, IM_FLOOR) + mark
@@ -46,7 +50,7 @@ def im_short_call(s: float, k: float, mark: float) -> float:
 
 def im_short_put(s: float, k: float, mark: float) -> float:
     """裸卖 Put 初始保证金（币种）：max(同 Call 结构, MM_put)。"""
-    if s <= 0 or k <= 0:
+    if s <= 0 or k <= 0 or mark < 0:
         return float("nan")
     otm_pct = max((s - k) / s, 0.0)
     im = max(IM_LEVEL - otm_pct, IM_FLOOR) + mark

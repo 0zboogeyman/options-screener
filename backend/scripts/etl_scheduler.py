@@ -41,11 +41,15 @@ def _next_run(schedule: str, now: datetime) -> datetime | None:
     m = _EVERY_RE.match(schedule)
     if m:
         n, unit = int(m.group(1)), m.group(2).lower()
+        if n < 1:
+            raise ValueError(f"Invalid ETL interval: {schedule!r}")
         delta = timedelta(hours=n) if unit == "h" else timedelta(minutes=n)
         return now + delta
     m = _HHMM_RE.match(schedule)
     if m:
         hour, minute = int(m.group(1)), int(m.group(2))
+        if hour > 23 or minute > 59:
+            raise ValueError(f"Invalid ETL time: {schedule!r}")
         today = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
         return today if today > now else today + timedelta(days=1)
     raise ValueError(f"Invalid ETL schedule: {schedule!r}")

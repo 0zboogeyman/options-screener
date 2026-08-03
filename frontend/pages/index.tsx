@@ -10,7 +10,6 @@ import StrangleScanner from '../components/StrangleScanner';
 import CalendarScanner from '../components/CalendarScanner';
 import VolPanel from '../components/VolPanel';
 import EtlRefreshButton from '../components/EtlRefreshButton';
-import AdSlot from '../components/AdSlot';
 import { useToast } from '../components/Toast';
 import { usePersistedState } from '../lib/usePersistedState';
 import i18n from '../lib/i18n';
@@ -507,8 +506,6 @@ export default function Home() {
           )}
         </>
       )}
-
-      <AdSlot id="ad-footer-top" />
 
       <div className="footer">
         <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>{t('footer.disclaimer')}</div>

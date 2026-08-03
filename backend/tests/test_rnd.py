@@ -16,6 +16,7 @@ from app.services.rnd import (
     prob_ge,
     quantile,
     rnd_from_svi,
+    rnd_is_valid,
 )
 
 F, T = 100000.0, 30 / 365.0
@@ -63,3 +64,18 @@ def test_tail_expectations():
     # 全分布均值≈F：q·ES_low + (1-q 部分) … 用双尾粗校验
     assert 0.05 * es_low + 0.90 * F * 0 + 0.05 * es_up > 0  # 占位 sanity
     assert np.isnan(expected_shortfall(rnd, 1.5))
+
+
+def test_rnd_is_valid():
+    """质量自检：质量好的切片判定有效，密度泄漏/远期失真判定无效。"""
+    good = rnd_from_svi(FLAT, T, F)
+    assert rnd_is_valid(good) is True
+    # 畸形参数（极短期限 + 强偏）→ 密度尾部泄漏 / 远期偏差超容差 → 无效
+    bad = rnd_from_svi({"a": 0.1, "b": 1.0, "rho": -0.99, "m": 0.5, "sigma": 0.5}, 1 / 365.0, F)
+    assert rnd_is_valid(bad) is False
+
+
+def test_prob_ge_forward_zero_is_nan():
+    """forward<=0 时概率返回 NaN（防止 log(负) 抛异常污染下游）。"""
+    rnd = rnd_from_svi(FLAT, T, 0.0)
+    assert np.isnan(prob_ge(rnd, 50000.0))

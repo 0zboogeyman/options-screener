@@ -64,6 +64,23 @@ def test_ivp_ivr():
     assert out2["ivp"] is None and out2["days_available"] == 1
 
 
+def test_ivr_cold_start_under_30_days_is_none():
+    """冷启动期（< IVR_MIN_DAYS）IVR 返回 None，前端显示 "—" 而非误导性 0%。"""
+    hist = pd.Series(np.arange(1.0, 21.0))  # 20 天
+    out = ivp_ivr(hist, current=10.0)
+    assert out["days_available"] == 20
+    assert out["ivp"] is not None      # 百分位有样本即可算
+    assert out["ivr"] is None          # 窗口不足 → 无统计意义
+
+
+def test_ivr_flat_series_is_none():
+    """无波动范围（vmax == vmin）时 IVR 返回 None，避免除零产出 NaN。"""
+    hist = pd.Series(np.full(60, 0.5))  # 天数足够但历史无波动
+    out = ivp_ivr(hist, current=0.5)
+    assert out["days_available"] == 60
+    assert out["ivr"] is None
+
+
 def test_percentile_rank():
     hist = pd.Series([10.0, 20.0, 30.0, 40.0])
     out = percentile_rank(hist, current=25.0)

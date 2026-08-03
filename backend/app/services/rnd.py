@@ -83,7 +83,24 @@ def rnd_from_svi(
                t_years=t_years, mass=mass, fwd_dev=fwd_dev)
 
 
+def rnd_is_valid(rnd: RND, mass_tol: float = 0.1, fwd_tol: float = 0.05) -> bool:
+    """RND 质量自检：归一化前 mass 应 ≈ 1、远期偏差应 ≈ 0。
+
+    偏差超过容差说明该切片 SVI 拟合质量差（密度尾部泄漏 / 远期失真），
+    调用方应跳过该到期，避免基于错误密度计算 PoP / 尾部风险。
+    """
+    if not np.isfinite(rnd.mass) or not np.isfinite(rnd.fwd_dev):
+        return False
+    if abs(rnd.mass - 1.0) > mass_tol:
+        return False
+    if abs(rnd.fwd_dev) > fwd_tol:
+        return False
+    return True
+
+
 def _cdf_at(rnd: RND, price: float) -> float:
+    if rnd.forward <= 0:
+        return float("nan")
     if price <= 0:
         return 0.0
     x = math.log(price / rnd.forward)

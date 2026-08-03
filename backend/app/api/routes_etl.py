@@ -78,7 +78,9 @@ def _worker_loop() -> None:
             _ETL_STATE.update(running=False, last_finished=_utc_now_iso(), last_error=None)
             logger.info("manual ETL finished date=%s", date_str)
         except Exception as exc:  # noqa: BLE001 — 状态必须落盘，worker 线程不能死
-            _ETL_STATE.update(running=False, last_finished=_utc_now_iso(), last_error=str(exc)[:500])
+            # 不向状态里写入原始异常文本（防止经 /etl/status 泄漏敏感路径/SQL 等）；
+            # 仅记录分类错误码，完整 traceback 落服务端日志。
+            _ETL_STATE.update(running=False, last_finished=_utc_now_iso(), last_error="etl_failed")
             logger.error("manual ETL failed: %s", exc, exc_info=True)
         finally:
             _TASK_QUEUE.task_done()
@@ -98,18 +100,23 @@ def _ensure_worker() -> None:
 def trigger_etl(request: Request) -> Dict[str, Any]:
     _check_admin_token(request)
 
-    if _ETL_STATE["running"]:
-        raise HTTPException(status_code=409, detail="ETL already running")
-
+    # 先确保 worker 线程已启动（_ensure_worker 内部自带 _WORKER_LOCK，需在
+    # 外层加锁前调用，避免非重入锁死锁）。worker 阻塞在队列 get 上，提前
+    # 启动无副作用。
     _ensure_worker()
     date_str = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
-    _ETL_STATE.update(
-        running=True,
-        last_started=_utc_now_iso(),
-        last_error=None,
-        last_trigger="manual",
-    )
-    _TASK_QUEUE.put((date_str, settings.etl_bases))
+    # TOCTOU 修复：running 的"检查并置位"必须原子，否则并发请求可能同时
+    # 通过 running=False 检查、双双入队，导致同一时刻两轮 ETL 抢文件锁。
+    with _WORKER_LOCK:
+        if _ETL_STATE["running"]:
+            raise HTTPException(status_code=409, detail="ETL already running")
+        _ETL_STATE.update(
+            running=True,
+            last_started=_utc_now_iso(),
+            last_error=None,
+            last_trigger="manual",
+        )
+        _TASK_QUEUE.put((date_str, settings.etl_bases))
     logger.info("manual ETL queued date=%s", date_str)
     return {"status": "started", "last_started": _ETL_STATE["last_started"]}
 

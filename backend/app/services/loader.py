@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import threading
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 DATA_ROOT: Path = settings.data_root
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_BASE_RE = re.compile(r"^(BTC|ETH)$")
 
 # 进程内链数据缓存：(date, base) -> (asof_ts, df, meta)。
 # 数据每天仅 ETL 变更一次；以 manifest.asof_ts 作版本号，ETL 写入新
@@ -50,7 +52,12 @@ def list_available_dates() -> List[str]:
         if p.is_dir():
             timestamp = p.name.split("=", 1)[1]
             date = timestamp[:10] if len(timestamp) >= 10 else timestamp
-            dates_set.add(date)
+            if _DATE_RE.fullmatch(date):
+                try:
+                    datetime.strptime(date, "%Y-%m-%d")
+                except ValueError:
+                    continue
+                dates_set.add(date)
     return sorted(list(dates_set))
 
 
@@ -88,6 +95,8 @@ def load_chain_for(date: str, base: str) -> Tuple[pd.DataFrame, ChainMeta]:
     缓存约定：调用方不得原地修改返回的 DataFrame（下游 prep_chain 会
     先 copy 再加工，已审查全部调用路径满足只读约束）。
     """
+    if not _BASE_RE.fullmatch(base):
+        raise ValueError(f"Invalid base: {base!r}")
     manifest_d = get_manifest(date)
     asof = int(manifest_d.get("asof_ts", 0))
     key = (date, base)
@@ -104,7 +113,21 @@ def load_chain_for(date: str, base: str) -> Tuple[pd.DataFrame, ChainMeta]:
     if not parquet_paths:
         raise FileNotFoundError(f"No parquet under {root} for base={base}")
 
-    dfs = [pd.read_parquet(p) for p in parquet_paths]
+    dfs = []
+    for attempt in range(2):
+        try:
+            dfs = [pd.read_parquet(path) for path in parquet_paths]
+            break
+        except FileNotFoundError:
+            if attempt == 1:
+                logger.warning("Parquet disappeared during load: %s", root)
+                raise FileNotFoundError(f"Parquet disappeared during load: {root}")
+            logger.info("Parquet changed during load, refreshing paths: %s", root)
+            parquet_paths = list((root / f"base={base}").glob("expiry=*/chain.parquet"))
+            if not parquet_paths:
+                parquet_paths = list(root.glob(f"**/base={base}/expiry=*/chain.parquet"))
+    if not dfs:
+        raise FileNotFoundError(f"No readable parquet under {root} for base={base}")
     df = pd.concat(dfs, ignore_index=True)
     logger.info("Loaded chain base=%s date=%s rows=%d", base, date, len(df))
 

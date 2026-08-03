@@ -9,8 +9,8 @@
 # 构建上下文即本目录（项目根），所有 COPY 路径均为自引用。
 #
 # 对外契约：
-#   * /            -> uvicorn (FastAPI StaticFiles)  容器端口 8000
-#   * /api/*       -> uvicorn (FastAPI 路由)         容器端口 8000
+#   * /            -> uvicorn (FastAPI StaticFiles)  容器端口 3000
+#   * /api/*       -> uvicorn (FastAPI 路由)         容器端口 3000
 #   * /api/health  -> 健康检查端点
 # 首次启动自动 ETL：沿用 backend/entrypoint.sh。
 # =============================================================================
@@ -78,7 +78,7 @@ RUN mkdir -p /app/data && chown -R appuser:appuser /app /app/frontend
 USER appuser
 WORKDIR /app
 
-EXPOSE 8000
+EXPOSE 3000
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["supervisord", "-c", "/etc/supervisor/supervisord.conf", "-n"]
