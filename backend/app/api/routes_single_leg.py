@@ -10,7 +10,7 @@ from ..services.single_leg import scan_csp, scan_cc
 
 
 class CSPRequest(BaseModel):
-    base: str = Field(..., pattern=r"^(BTC|ETH)$")
+    base: str = Field(..., pattern=settings.base_pattern)
     max_dte: int = Field(default=60, ge=1, le=180, description="最大到期天数")
     max_delta: float = Field(default=0.30, ge=0.01, le=0.99, description="最大Delta绝对值")
     min_oi: int = Field(default=10, ge=0, description="最小持仓量")
@@ -20,7 +20,7 @@ class CSPRequest(BaseModel):
 
 
 class CCRequest(BaseModel):
-    base: str = Field(..., pattern=r"^(BTC|ETH)$")
+    base: str = Field(..., pattern=settings.base_pattern)
     max_dte: int = Field(default=60, ge=1, le=180, description="最大到期天数")
     max_delta: float = Field(default=0.30, ge=0.01, le=0.99, description="最大Delta绝对值")
     min_oi: int = Field(default=10, ge=0, description="最小持仓量")

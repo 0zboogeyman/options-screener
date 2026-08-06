@@ -34,7 +34,10 @@ FROM python:3.11-slim AS backend-build
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    # 慢网络（如测试 VPS 到 pypi.org ~16s 延迟）下避免大包拉取超时/重试失败
+    PIP_DEFAULT_TIMEOUT=120 \
+    PIP_RETRIES=5
 WORKDIR /app
 COPY backend/requirements.txt /app/requirements.txt
 RUN python -m venv /opt/venv \

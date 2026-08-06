@@ -26,8 +26,9 @@ export default function ResultBucket({ bucket, spotPrice }: ResultBucketProps) {
 
   const Row = ({ it }: { it: ScanLeg }) => {
     const premiumUsd = it.premium * spotPrice;
-    const maxProfitUsd = isDebit ? it.max_profit : (it.max_profit * spotPrice);
-    const maxLossUsd = isDebit ? (it.max_loss * spotPrice) : it.max_loss;
+    // 后端已统一 USD 净值口径：max_profit/max_loss 均为 USD
+    const maxProfitUsd = it.max_profit;
+    const maxLossUsd = it.max_loss;
     const kelly = quarterKelly(it.pop, maxProfitUsd / Math.max(maxLossUsd, 1e-9));
 
     return (

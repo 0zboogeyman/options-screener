@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import List
 
@@ -30,6 +31,15 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     etl_bases: List[str] = ["BTC", "ETH"]
+
+    @property
+    def base_pattern(self) -> str:
+        """币种白名单正则，由 etl_bases 动态生成（审计 L9 修复）。
+
+        扩展 ETL_BASES（如新增 SOL）后，所有 API 的 base 校验自动跟随，
+        无需再手工同步各路由的硬编码 (BTC|ETH)。
+        """
+        return r"^(?:" + "|".join(re.escape(b) for b in self.etl_bases) + r")$"
 
     # 扫描端点限流。前端一次页面操作可能触发多个请求，默认 30/min
     # 保证正常交互不触发 429，同时仍能挡住脚本化刷量。

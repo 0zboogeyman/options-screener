@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ..core.config import settings
 from ..core.ratelimit import limiter
@@ -29,7 +29,7 @@ router = APIRouter()
 
 
 class IronCondorRequest(BaseModel):
-    base: str = Field(..., pattern=r"^(BTC|ETH)$")
+    base: str = Field(..., pattern=settings.base_pattern)
     dte_min: int = Field(default=14, ge=1, le=180)
     dte_max: int = Field(default=60, ge=1, le=365)
     short_delta_min: float = Field(default=0.10, ge=0.01, le=0.50)
@@ -40,9 +40,17 @@ class IronCondorRequest(BaseModel):
     pricing_mode: str = Field(default="mid", pattern=r"^(mid|conservative)$")
     return_count: int = Field(default=20, ge=1, le=100)
 
+    @model_validator(mode="after")
+    def _check_ranges(self):
+        if self.dte_min > self.dte_max:
+            raise ValueError("dte_min must be <= dte_max")
+        if self.short_delta_min > self.short_delta_max:
+            raise ValueError("short_delta_min must be <= short_delta_max")
+        return self
+
 
 class StrangleRequest(BaseModel):
-    base: str = Field(..., pattern=r"^(BTC|ETH)$")
+    base: str = Field(..., pattern=settings.base_pattern)
     side: str = Field(default="both", pattern=r"^(both|long|short)$")
     dte_min: int = Field(default=7, ge=1, le=180)
     dte_max: int = Field(default=45, ge=1, le=365)
@@ -53,9 +61,17 @@ class StrangleRequest(BaseModel):
     pricing_mode: str = Field(default="mid", pattern=r"^(mid|conservative)$")
     return_count: int = Field(default=15, ge=1, le=100)
 
+    @model_validator(mode="after")
+    def _check_ranges(self):
+        if self.dte_min > self.dte_max:
+            raise ValueError("dte_min must be <= dte_max")
+        if self.delta_min > self.delta_max:
+            raise ValueError("delta_min must be <= delta_max")
+        return self
+
 
 class CalendarRequest(BaseModel):
-    base: str = Field(..., pattern=r"^(BTC|ETH)$")
+    base: str = Field(..., pattern=settings.base_pattern)
     near_dte_min: int = Field(default=7, ge=1, le=180)
     near_dte_max: int = Field(default=30, ge=1, le=365)
     min_gap_days: int = Field(default=14, ge=1, le=180)
@@ -63,6 +79,12 @@ class CalendarRequest(BaseModel):
     min_oi: int = Field(default=10, ge=0)
     pricing_mode: str = Field(default="mid", pattern=r"^(mid|conservative)$")
     return_count: int = Field(default=15, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def _check_ranges(self):
+        if self.near_dte_min > self.near_dte_max:
+            raise ValueError("near_dte_min must be <= near_dte_max")
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +187,7 @@ def scan_calendar_strategy(request: Request, req: CalendarRequest):
 @limiter.limit("60/minute")
 def get_vol_panel(
     request: Request,
-    base: str = Query(..., pattern=r"^(BTC|ETH)$"),
+    base: str = Query(..., pattern=settings.base_pattern),
 ):
     """波动率面板：DVOL + IVP/IVR + SVI 期限结构 + skew。
 
@@ -192,9 +214,9 @@ def get_vol_panel(
             "expiry_ts": int(exp_ts),
             "expiry_date": pd.Timestamp(exp_ts, unit="ms").strftime("%Y-%m-%d"),
             "dte": round(float(dte), 1),
-            "atm_iv": round(float(p["atm_iv"]) * 100, 2) if p.get("atm_iv") else None,
-            "rr25": round(float(p["rr25"]) * 100, 2) if p.get("rr25") else None,
-            "bf25": round(float(p["bf25"]) * 100, 2) if p.get("bf25") else None,
+            "atm_iv": round(float(p["atm_iv"]), 4) if p.get("atm_iv") else None,
+            "rr25": round(float(p["rr25"]), 4) if p.get("rr25") else None,
+            "bf25": round(float(p["bf25"]), 4) if p.get("bf25") else None,
         })
 
     # DVOL 历史（最近 90 天，前端画趋势图）

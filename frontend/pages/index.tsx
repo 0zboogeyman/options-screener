@@ -90,15 +90,9 @@ function OpinionResultDisplay({ result, spotPrice }: { result: OpinionResult; sp
           <tbody>
             {items.map((s: any, idx: number) => {
               const premiumUsd = Math.abs(s.premium) * spotPrice;
-              let maxProfitUsd: number;
-              let maxLossUsd: number;
-              if (side === 'DEBIT') {
-                maxProfitUsd = s.max_profit;
-                maxLossUsd = s.max_loss * spotPrice;
-              } else {
-                maxProfitUsd = s.max_profit * spotPrice;
-                maxLossUsd = s.max_loss;
-              }
+              // 后端 _calc_vertical_metrics 已统一 USD 净值口径：max_profit/max_loss 均为 USD
+              const maxProfitUsd = s.max_profit;
+              const maxLossUsd = s.max_loss;
               return (
                 <tr key={idx}>
                   <td>{s.expiry_date}</td>

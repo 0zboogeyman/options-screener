@@ -156,20 +156,20 @@ export default function VolPanel() {
                         <td>{t_row.expiry_date}</td>
                         <td className="align-right">{t_row.dte}</td>
                         <td className="align-right" style={{ fontWeight: 'bold' }}>
-                          {t_row.atm_iv != null ? `${t_row.atm_iv.toFixed(1)}%` : '—'}
+                          {t_row.atm_iv != null ? `${(t_row.atm_iv * 100).toFixed(1)}%` : '—'}
                         </td>
                         <td className="align-right" style={{
-                          color: t_row.rr25 != null && t_row.rr25 < -1 ? '#dc3545' : t_row.rr25 != null && t_row.rr25 > 1 ? '#28a745' : '#666'
+                          color: t_row.rr25 != null && t_row.rr25 < -0.01 ? '#dc3545' : t_row.rr25 != null && t_row.rr25 > 0.01 ? '#28a745' : '#666'
                         }}>
-                          {t_row.rr25 != null ? `${t_row.rr25.toFixed(2)}%` : '—'}
+                          {t_row.rr25 != null ? `${(t_row.rr25 * 100).toFixed(2)}%` : '—'}
                         </td>
                         <td className="align-right">
-                          {t_row.bf25 != null ? `${t_row.bf25.toFixed(2)}%` : '—'}
+                          {t_row.bf25 != null ? `${(t_row.bf25 * 100).toFixed(2)}%` : '—'}
                         </td>
                         <td className="align-right" style={{ fontSize: 12 }}>
                           {t_row.rr25 != null
-                            ? t_row.rr25 < -1 ? t('vol.putRich')
-                              : t_row.rr25 > 1 ? t('vol.callRich')
+                            ? t_row.rr25 < -0.01 ? t('vol.putRich')
+                              : t_row.rr25 > 0.01 ? t('vol.callRich')
                               : t('vol.symmetric')
                             : '—'}
                         </td>

@@ -8,46 +8,24 @@ import pandas as pd
 
 from .bs import delta_call_vec, delta_put_vec
 from .preprocessing import prep_chain
+from .scoring import MIN_SCORE, apply_scores  # noqa: F401  (MIN_SCORE re-export 兼容)
 
 logger = logging.getLogger(__name__)
 
-# 综合评分低于该阈值的候选直接不展示（需求：评分 45 分以下的策略过滤掉）
-MIN_SCORE = 45.0
-
-# 综合评分权重（字段, 权重, 是否取反后再归一）。两策略权重结构一致，
-# 仅参与字段不同；调整策略偏好时只需改这里。
-CSP_SCORE_WEIGHTS: Tuple[Tuple[str, float, bool], ...] = (
-    ("apr", 0.35, False),
-    ("discount_pct", 0.25, False),
-    ("assign_prob", 0.20, True),
-    ("liquidity_score", 0.20, False),
+# 综合评分权重（字段, 权重, 是否取反, 锚定参考区间 (lo, hi)）。两策略权重
+# 结构一致，仅参与字段不同；区间按字段语义量级设定，调整策略偏好只需改这里。
+CSP_SCORE_WEIGHTS: Tuple[Tuple[str, float, bool, Tuple[float, float]], ...] = (
+    ("apr", 0.35, False, (0.0, 1.0)),
+    ("discount_pct", 0.25, False, (0.0, 0.5)),
+    ("assign_prob", 0.20, True, (0.0, 1.0)),
+    ("liquidity_score", 0.20, False, (0.0, 5.0)),
 )
-CC_SCORE_WEIGHTS: Tuple[Tuple[str, float, bool], ...] = (
-    ("apr_notional", 0.35, False),
-    ("upside_pct", 0.25, False),
-    ("assign_prob", 0.20, True),
-    ("liquidity_score", 0.20, False),
+CC_SCORE_WEIGHTS: Tuple[Tuple[str, float, bool, Tuple[float, float]], ...] = (
+    ("apr_notional", 0.35, False, (0.0, 1.0)),
+    ("upside_pct", 0.25, False, (0.0, 0.5)),
+    ("assign_prob", 0.20, True, (0.0, 1.0)),
+    ("liquidity_score", 0.20, False, (0.0, 5.0)),
 )
-
-
-def _normalize_score(values: List[float]) -> List[float]:
-    if not values or len(values) == 0:
-        return []
-
-    arr = np.array(values)
-    valid_mask = np.isfinite(arr)
-
-    if not np.any(valid_mask):
-        return [0.0] * len(values)
-
-    valid_values = arr[valid_mask]
-    min_val = np.min(valid_values)
-    max_val = np.max(valid_values)
-
-    if max_val == min_val:
-        return [0.5 if np.isfinite(v) else 0.0 for v in values]
-
-    return [((v - min_val) / (max_val - min_val)) if np.isfinite(v) else 0.0 for v in values]
 
 
 def _empty_single_result(meta, df: pd.DataFrame, strategy: str, **extra) -> Dict:
@@ -81,22 +59,6 @@ def _filter_chain(chain_df: pd.DataFrame, meta, option_type: str,
     df["spread_bps"] = df["spread_ratio"] * 10000
     df = df[df["spread_bps"] <= max_spread_bps].copy()
     return df, asof
-
-
-def _apply_scores(candidates: List[Dict],
-                  weights: Tuple[Tuple[str, float, bool], ...]) -> None:
-    """按 (字段, 权重, 取反) 规格对候选加权打分，结果写入 c["score"] 并原地降序排序；
-    排序后过滤掉评分低于 MIN_SCORE 的候选（原地裁剪）。"""
-    totals = [0.0] * len(candidates)
-    for key, weight, invert in weights:
-        raw = [(1.0 - c[key]) if invert else c[key] for c in candidates]
-        norm = _normalize_score(raw)
-        for i in range(len(candidates)):
-            totals[i] += weight * norm[i]
-    for i, c in enumerate(candidates):
-        c["score"] = round(totals[i] * 100, 1)
-    candidates.sort(key=lambda x: x["score"], reverse=True)
-    candidates[:] = [c for c in candidates if c["score"] >= MIN_SCORE]
 
 
 def scan_csp(
@@ -175,7 +137,7 @@ def scan_csp(
     if not candidates:
         return _empty_single_result(meta, df, "CSP", dvol_index=meta.dvol_index, filters=filters)
 
-    _apply_scores(candidates, CSP_SCORE_WEIGHTS)
+    apply_scores(candidates, CSP_SCORE_WEIGHTS)
     top = candidates[:return_count]
 
     logger.info("CSP scan base=%s results=%d top_score=%.1f", df["base"].iloc[0], len(top), top[0]["score"] if top else 0)
@@ -266,7 +228,7 @@ def scan_cc(
     if not candidates:
         return _empty_single_result(meta, df, "CC", dvol_index=meta.dvol_index, filters=filters)
 
-    _apply_scores(candidates, CC_SCORE_WEIGHTS)
+    apply_scores(candidates, CC_SCORE_WEIGHTS)
     top = candidates[:return_count]
 
     logger.info("CC scan base=%s results=%d top_score=%.1f", df["base"].iloc[0], len(top), top[0]["score"] if top else 0)

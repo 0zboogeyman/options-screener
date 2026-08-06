@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import logging
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -63,11 +65,25 @@ def _frontend_dist() -> Path:
     return candidates[0]  # 都不存在时返回仓库布局路径（触发 API-only 警告）
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """应用生命周期钩子：优雅启动/关闭。
+
+    open 各调用点均局部创建 httpx 客户端（无共享连接池），shutdown 无需
+    显式释放；预留钩子便于未来引入共享连接时在此关闭。
+    """
+    logger.info("Application startup complete")
+    yield
+    logger.info("Application shutdown: releasing resources")
+    # 预留：共享 httpx.AsyncClient 在此 aclose()
+
+
 def create_app() -> FastAPI:
     docs_enabled = settings.api_docs_enabled
     app = FastAPI(
         title="Option Scanner API",
         version="0.2.0",
+        lifespan=lifespan,
         docs_url="/docs" if docs_enabled else None,
         redoc_url="/redoc" if docs_enabled else None,
         openapi_url="/openapi.json" if docs_enabled else None,

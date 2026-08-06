@@ -196,12 +196,17 @@ class TestLoaderValidation:
             loader.load_chain_for(date="2026-07-26", base="XRP")
 
     def test_list_available_dates_filters_invalid(self, monkeypatch, tmp_path):
-        """非法格式目录名（非 YYYY-MM-DD 前缀）不应污染可用日期列表。"""
+        """非法格式目录名（非 YYYY-MM-DD 前缀）或缺失 manifest 的分区
+        不应进入可用日期列表（审计 M1 关联修复）。"""
         from app.services import loader
 
         monkeypatch.setattr(loader, "DATA_ROOT", tmp_path)
         (tmp_path / "dt=2026-07-26-08").mkdir()
         (tmp_path / "dt=2026-07-25-06").mkdir()
+        (tmp_path / "dt=2026-07-24-10").mkdir()  # 无 manifest → 过滤
         (tmp_path / "dt=garbage").mkdir()
+        # 仅两个有效目录写 manifest，模拟完整写入的分区
+        (tmp_path / "dt=2026-07-26-08" / "manifest.json").write_text("{}")
+        (tmp_path / "dt=2026-07-25-06" / "manifest.json").write_text("{}")
         dates = loader.list_available_dates()
         assert dates == ["2026-07-25", "2026-07-26"]

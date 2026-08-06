@@ -69,36 +69,46 @@ def _calc_vertical_metrics(kind: str, side: str, k1: float, k2: float, long_px: 
                            s: float, iv: float, t_years: float, iv_at=None) -> Dict:
     """计算垂直价差指标。
 
+    统一约定（消除审计 H1/H2/odds 双语义）：
+      * 行权价位置无关：k1/k2 内部按 min/max 归一化为 k_lo/k_hi，调用方传参
+        顺序（低K 在前还是高K 在前）不再影响盈亏平衡点与 PoP——修复
+        opinion down/not_down 分支传反导致的 PoP 虚高；
+      * 金额字段统一 USD 净值口径：max_profit/max_loss 均为 USD，
+        DEBIT max_profit = 价差宽度 − 净支出、CREDIT max_loss = 价差宽度 − 净收入，
+        与 multi_leg/margin 的净口径一致，不再与净值盈亏图冲突；
+      * odds 统一为 reward/risk（越大越好）：DEBIT = 宽度/净支出，
+        CREDIT = 净收入/宽度——两侧排序方向一致，_rank 的降序取 top 语义正确。
     iv_at：可选回调 iv_at(k_be) -> iv，按盈亏平衡行权价取 SVI 逐行权价 IV；
     为 None 时用传入的 iv（兼容旧调用）。
-    注意 PoP 的 premium 必须换算成 USD（k 是 USD、premium 是币种），
-    旧版直接把币种 premium 加在 USD 行权价上属于单位混用。
     """
     strike_width = abs(k2 - k1)
+    k_lo = min(k1, k2)
+    k_hi = max(k1, k2)
 
     if side == "DEBIT":
-        premium = (long_px - short_px)
-        max_profit = strike_width
-        max_loss = premium
+        premium = (long_px - short_px)        # 币种，净支出
+        premium_usd = premium * s
+        max_profit = strike_width - premium_usd  # USD 净值
+        max_loss = premium_usd                    # USD
     else:
-        premium = (short_px - long_px)
-        max_profit = premium
-        max_loss = strike_width
+        premium = (short_px - long_px)        # 币种，净收入
+        premium_usd = premium * s
+        max_profit = premium_usd                  # USD
+        max_loss = strike_width - premium_usd     # USD 净值
 
-    premium_usd = premium * s
-    if premium_usd <= 0:
+    if premium_usd <= 0 or strike_width <= 0:
         odds = float("inf") if strike_width > 0 else float("nan")
     else:
-        odds = strike_width / premium_usd
+        odds = (strike_width / premium_usd) if side == "DEBIT" else (premium_usd / strike_width)
 
     if iv_at is not None and math.isfinite(premium_usd):
-        k_be = (k1 + premium_usd) if kind.upper() == "CALL" else (k2 - premium_usd)
+        k_be = (k_lo + premium_usd) if kind.upper() == "CALL" else (k_hi - premium_usd)
         vol_be = float(iv_at(k_be))
         if not math.isfinite(vol_be) or vol_be <= 0:
             vol_be = iv
     else:
         vol_be = iv
-    pop = pop_for_vertical(kind=kind, side=side, s=s, k1=k1, k2=k2, premium=premium_usd,
+    pop = pop_for_vertical(kind=kind, side=side, s=s, k1=k_lo, k2=k_hi, premium=premium_usd,
                            vol=max(vol_be, 1e-6), t_years=max(t_years, 1e-6))
 
     return {
@@ -233,8 +243,16 @@ def scan_buckets(
                     sr = x.get("spread_ratio_avg")
                     penalty = 0.5 * min(sr / SPREAD_RATIO_MAX, 1.0) if sr is not None and math.isfinite(sr) else 0.0
                     x["odds_adj"] = x["odds"] * (1.0 - penalty)
-                top = heapq.nlargest(return_per_bucket, lst, key=lambda x: x["odds_adj"])
-                bottom = heapq.nsmallest(return_per_bucket, lst, key=lambda x: x["odds_adj"])
+                    # PoP 参与排序（审计 M8 修复）：用期望收益 E = pop·(odds+1) − 1 作综合
+                    # 排序键——同时惩罚"高赔率低胜率"（窄价差贴 ATM）与"高胜率低赔率"组合，
+                    # 而不是只看 odds。PoP 无效时回退纯 odds 排序。
+                    pop = x.get("pop")
+                    if pop is not None and math.isfinite(pop) and 0.0 <= pop <= 1.0:
+                        x["rank_key"] = pop * (x["odds_adj"] + 1.0) - 1.0
+                    else:
+                        x["rank_key"] = x["odds_adj"]
+                top = heapq.nlargest(return_per_bucket, lst, key=lambda x: x["rank_key"])
+                bottom = heapq.nsmallest(return_per_bucket, lst, key=lambda x: x["rank_key"])
                 return top, bottom
 
             top_d, bot_d = _rank(legs_debit)
@@ -403,6 +421,7 @@ def scan_opinion_spreads(
                     "max_profit": metrics["max_profit"],
                     "max_loss": metrics["max_loss"],
                     "odds": metrics["odds"],
+                    "pop": metrics["pop"],
                 })
 
         elif view == "down":
@@ -427,6 +446,7 @@ def scan_opinion_spreads(
                     "max_profit": metrics["max_profit"],
                     "max_loss": metrics["max_loss"],
                     "odds": metrics["odds"],
+                    "pop": metrics["pop"],
                 })
 
         elif view == "not_up":
@@ -451,6 +471,7 @@ def scan_opinion_spreads(
                     "max_profit": metrics["max_profit"],
                     "max_loss": metrics["max_loss"],
                     "odds": metrics["odds"],
+                    "pop": metrics["pop"],
                 })
 
         else:
@@ -475,12 +496,22 @@ def scan_opinion_spreads(
                     "max_profit": metrics["max_profit"],
                     "max_loss": metrics["max_loss"],
                     "odds": metrics["odds"],
+                    "pop": metrics["pop"],
                 })
 
+    # PoP 参与排序（审计 M8 修复）：用期望收益 E = pop·(odds+1) − 1 作综合排序键，
+    # DEBIT/CREDIT 一律降序取 top；次要键：DEBIT 支出（premium）越少越好、
+    # CREDIT 收入（premium）越多越好。
+    for c in candidates:
+        pop = c.get("pop")
+        if pop is not None and math.isfinite(pop) and 0.0 <= pop <= 1.0:
+            c["rank_key"] = pop * (c["odds"] + 1.0) - 1.0
+        else:
+            c["rank_key"] = c["odds"]
     if side == "CREDIT":
-        candidates.sort(key=lambda x: (x["odds"], x["premium"]))
+        candidates.sort(key=lambda x: (-x["rank_key"], -x["premium"]))
     else:
-        candidates.sort(key=lambda x: (-x["odds"], -x["max_profit"], x["premium"]))
+        candidates.sort(key=lambda x: (-x["rank_key"], x["premium"]))
 
     top_strategies = candidates[:return_count]
 

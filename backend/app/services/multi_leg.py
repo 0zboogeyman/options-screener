@@ -35,40 +35,38 @@ from .rnd import (
     rnd_is_valid,
 )
 from .scanner import SPREAD_RATIO_MAX
-from .single_leg import _normalize_score
+from .scoring import apply_scores
 from .svi import svi_iv
 
 logger = logging.getLogger(__name__)
 
 MS_PER_DAY = 1000 * 60 * 60 * 24
 
-# 综合评分低于该阈值的候选直接不展示（需求：评分 45 分以下的策略过滤掉）
-MIN_SCORE = 45.0
-
-# 评分权重（字段, 权重, 是否取反）
+# 评分权重（字段, 权重, 是否取反, 锚定参考区间 (lo, hi)）。区间按字段语义量级设定，
+# 调整策略偏好只需改权重/区间。
 IC_SCORE_WEIGHTS: Tuple = (
-    ("apr_on_max_loss", 0.35, False),
-    ("pop", 0.30, False),
-    ("liquidity_score", 0.20, False),
-    ("ivp_score", 0.15, False),
+    ("apr_on_max_loss", 0.35, False, (0.0, 1.0)),
+    ("pop", 0.30, False, (0.0, 1.0)),
+    ("liquidity_score", 0.20, False, (0.0, 5.0)),
+    ("ivp_score", 0.15, False, (0.0, 1.0)),
 )
 STRANGLE_SHORT_WEIGHTS: Tuple = (
-    ("apr_on_im", 0.30, False),
-    ("pop", 0.30, False),
-    ("liquidity_score", 0.20, False),
-    ("ivp_score", 0.20, False),
+    ("apr_on_im", 0.30, False, (0.0, 1.0)),
+    ("pop", 0.30, False, (0.0, 1.0)),
+    ("liquidity_score", 0.20, False, (0.0, 5.0)),
+    ("ivp_score", 0.20, False, (0.0, 1.0)),
 )
 STRANGLE_LONG_WEIGHTS: Tuple = (
-    ("cost_ratio", 0.35, True),       # 成本/预期波动，越低越好
-    ("pop_profit", 0.25, False),
-    ("vega_per_dollar", 0.20, False),
-    ("liquidity_score", 0.20, False),
+    ("cost_ratio", 0.35, True, (0.0, 1.0)),      # 成本/预期波动，越低越好
+    ("pop_profit", 0.25, False, (0.0, 1.0)),
+    ("vega_per_dollar", 0.20, False, (0.0, 0.5)),
+    ("liquidity_score", 0.20, False, (0.0, 5.0)),
 )
 CALENDAR_SCORE_WEIGHTS: Tuple = (
-    ("theta_apr", 0.35, False),
-    ("iv_slope_ratio", 0.25, False),
-    ("liquidity_score", 0.20, False),
-    ("debit_ratio", 0.20, True),      # 权利金/远月预期波动，越低越好
+    ("theta_apr", 0.35, False, (0.0, 1.0)),
+    ("iv_slope_ratio", 0.25, False, (-0.5, 0.5)),
+    ("liquidity_score", 0.20, False, (0.0, 5.0)),
+    ("debit_ratio", 0.20, True, (0.0, 1.0)),      # 权利金/远月预期波动，越低越好
 )
 
 
@@ -80,6 +78,9 @@ def _prepare_legs(chain_df: pd.DataFrame, meta, min_oi: int) -> Tuple[pd.DataFra
     df = prep_chain(chain_df)
     df = df[df["mid"].notna()].copy()
     df = df[df["spread_ratio"] <= SPREAD_RATIO_MAX].copy()
+    # 倒挂报价过滤（审计 M4 修复）：preprocessing 已将 ask<bid 打标 invalid，
+    # 此处消费该标记，避免 crossed quote 进入铁鹰/宽跨/日历候选。
+    df = df[df["quality_flag"] == "ok"].copy()
     if min_oi > 0:
         df = df[df["oi"].fillna(0) >= min_oi].copy()
     asof = int(meta.asof_ts)
@@ -160,25 +161,6 @@ def _net_greeks(legs: List[Dict], s: float) -> Dict:
         net_vega += sign * float(v)
         net_theta += sign * float(th)
     return {"net_delta": float(net_delta), "net_vega_usd": net_vega, "net_theta_usd": net_theta}
-
-
-def _apply_scores(candidates: List[Dict], weights: Tuple) -> None:
-    """加权打分 → 写入 c["score"] → 降序排序 → 过滤掉评分低于 MIN_SCORE 的候选（原地）。"""
-    totals = [0.0] * len(candidates)
-    for key, weight, invert in weights:
-        raw = []
-        for c in candidates:
-            v = c.get(key)
-            if v is None or not np.isfinite(v):
-                v = 0.5 if key == "ivp_score" else np.nan
-            raw.append((1.0 - v) if invert and np.isfinite(v) else v)
-        norm = _normalize_score(raw)
-        for i in range(len(candidates)):
-            totals[i] += weight * norm[i]
-    for i, c in enumerate(candidates):
-        c["score"] = round(totals[i] * 100, 1)
-    candidates.sort(key=lambda x: x["score"], reverse=True)
-    candidates[:] = [c for c in candidates if c["score"] >= MIN_SCORE]
 
 
 def _empty_result(meta, chain_df, strategy: str, **extra) -> Dict:
@@ -342,7 +324,7 @@ def scan_iron_condor(
                     "greeks": _net_greeks(legs, s),
                 })
 
-    _apply_scores(candidates, IC_SCORE_WEIGHTS)
+    apply_scores(candidates, IC_SCORE_WEIGHTS)
     top = candidates[:return_count]
     logger.info("IC scan base=%s results=%d", chain_df["base"].iloc[0] if not chain_df.empty else "", len(top))
     return {
@@ -422,6 +404,10 @@ def scan_strangle(
         atm_iv = float(params["atm_iv"]) if params.get("atm_iv") else float(np.nanmean(grp["svi_iv"]))
         expected_move = s * atm_iv * math.sqrt(t_years)
         expiry_date = pd.Timestamp(exp_ts, unit="ms").strftime("%Y-%m-%d")
+        # 审计 L10：切片级尾部指标只算一次（RND 2401 点积分开销大），
+        # 提到双层循环外，避免最多 max_pool² 次重复计算。
+        es_lo = expected_shortfall(rnd, 0.05)
+        es_hi = expected_upside_tail(rnd, 0.05)
 
         for _, pr in puts.iterrows():
             for _, cr in calls.iterrows():
@@ -467,9 +453,8 @@ def scan_strangle(
                         mg = margin_mod.margin_strangle_short(
                             s, k_put, k_call, legs_short[0]["price"], legs_short[1]["price"])
                         apr_on_im = (credit / mg["im_standard"]) * 365.0 / dte if mg["im_standard"] else None
-                        # 尾部风险：5% 期望亏损价位对应的估计亏损（USD）
-                        es_lo = expected_shortfall(rnd, 0.05)
-                        es_hi = expected_upside_tail(rnd, 0.05)
+                        # 尾部风险：5% 期望亏损价位对应的估计亏损（USD）；
+                        # es_lo/es_hi 已按切片在双层循环外算好（审计 L10）
                         tail_loss_put = max(k_put - es_lo, 0.0) - credit_usd
                         tail_loss_call = max(es_hi - k_call, 0.0) - credit_usd
                         g = _net_greeks(legs_short, s)
@@ -489,8 +474,8 @@ def scan_strangle(
                             "risk_warning": "理论亏损无限，尾部为 RND 5% 期望亏损估计",
                         })
 
-    _apply_scores(longs, STRANGLE_LONG_WEIGHTS)
-    _apply_scores(shorts, STRANGLE_SHORT_WEIGHTS)
+    apply_scores(longs, STRANGLE_LONG_WEIGHTS)
+    apply_scores(shorts, STRANGLE_SHORT_WEIGHTS)
     logger.info("Strangle scan base=%s long=%d short=%d",
                 chain_df["base"].iloc[0] if not chain_df.empty else "", len(longs), len(shorts))
     return {
@@ -628,7 +613,7 @@ def scan_calendar(
                     "liquidity_score": _liquidity_score(legs),
                 })
 
-    _apply_scores(candidates, CALENDAR_SCORE_WEIGHTS)
+    apply_scores(candidates, CALENDAR_SCORE_WEIGHTS)
     top = candidates[:return_count]
     logger.info("Calendar scan base=%s results=%d",
                 chain_df["base"].iloc[0] if not chain_df.empty else "", len(top))

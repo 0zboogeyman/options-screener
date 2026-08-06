@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from ..core.config import settings
 from ..core.ratelimit import limiter
 from ..services.loader import list_available_dates, list_expiries_for, get_manifest
 
@@ -22,7 +23,7 @@ def get_dates(request: Request):
 @limiter.limit(_META_RATE_LIMIT)
 def get_expiries(
     request: Request,
-    base: str = Query(..., pattern="^(BTC|ETH)$"),
+    base: str = Query(..., pattern=settings.base_pattern),
     date: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$", description="YYYY-MM-DD"),
 ):
     try:
@@ -36,7 +37,7 @@ def get_expiries(
 @limiter.limit(_META_RATE_LIMIT)
 def get_asof(
     request: Request,
-    base: str = Query(..., pattern="^(BTC|ETH)$"),
+    base: str = Query(..., pattern=settings.base_pattern),
     date: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$", description="YYYY-MM-DD"),
 ):
     try:

@@ -24,10 +24,15 @@ def probability_st_ge_k(s: float, k: float, vol: float, t_years: float, r: float
 
 
 def probability_st_le_k(s: float, k: float, vol: float, t_years: float, r: float = 0.0) -> float:
-    p = probability_st_ge_k(s, k, vol, t_years, r)
-    if math.isnan(p):
-        return p
-    return 1.0 - p
+    """P(S_T ≤ K) = N(−d₂)。
+
+    直接计算 N(−d₂) 而非 1−N(d₂)：深虚值（d₂ 很大）时 1−N(d₂) 存在灾难性抵消，
+    浮点下 N(d₂) 会舍入为 1.0 使结果错误归零（审计 M1 修复）。"""
+    if s <= 0 or k <= 0 or vol <= 0 or t_years <= 0:
+        return float("nan")
+    vt = vol * math.sqrt(t_years)
+    d2 = (math.log(s / k) + (r - 0.5 * vol * vol) * t_years) / vt
+    return float(norm.cdf(-d2))
 
 
 def pop_for_vertical(

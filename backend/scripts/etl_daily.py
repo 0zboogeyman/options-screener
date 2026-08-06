@@ -14,7 +14,7 @@ from typing import Dict, List, Tuple
 import httpx
 import numpy as np
 import pandas as pd
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
 from app.core.config import settings
 from app.core.logging import setup_logging
@@ -78,10 +78,20 @@ class EtlAlreadyRunningError(RuntimeError):
     """另一进程（或本进程）的 ETL 正在运行。"""
 
 
+def _retryable(exc: BaseException) -> bool:
+    """审计 L1：raise_for_status() 抛的 HTTPStatusError 是 HTTPError 子类，
+    若按类型统一重试会把 4xx（参数错/限流等不可恢复错误）也反复重试。
+    谓词：HTTPStatusError 仅 5xx 重试；其余 HTTPError/Timeout/ValueError 维持重试，
+    4xx 立即抛出。"""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500
+    return isinstance(exc, (httpx.HTTPError, httpx.TimeoutException, ValueError))
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=15),
-    retry=retry_if_exception_type((httpx.HTTPError, httpx.TimeoutException, ValueError)),
+    retry=retry_if_exception(_retryable),
     reraise=True,
 )
 async def fetch_book_summary(client: httpx.AsyncClient, currency: str) -> List[Dict]:
@@ -98,7 +108,7 @@ async def fetch_book_summary(client: httpx.AsyncClient, currency: str) -> List[D
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=15),
-    retry=retry_if_exception_type((httpx.HTTPError, httpx.TimeoutException, ValueError)),
+    retry=retry_if_exception(_retryable),
     reraise=True,
 )
 async def fetch_instruments(client: httpx.AsyncClient, currency: str) -> Dict[str, Dict]:
@@ -118,7 +128,7 @@ async def fetch_instruments(client: httpx.AsyncClient, currency: str) -> Dict[st
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=15),
-    retry=retry_if_exception_type((httpx.HTTPError, httpx.TimeoutException, ValueError)),
+    retry=retry_if_exception(_retryable),
     reraise=True,
 )
 async def fetch_index_price(client: httpx.AsyncClient, currency: str) -> float:
@@ -138,8 +148,22 @@ async def run_once(date_str: str, bases: List[str], notify: bool = False) -> Non
     if not lock.acquire():
         logger.warning("ETL skipped: another run is in progress (date=%s)", date_str)
         raise EtlAlreadyRunningError("another ETL run is in progress")
+    # 分区目录名以 date_str 为日期前缀：--date 回填历史日期时目录名与数据日期
+    # 一致，loader.list_available_dates / _date_dir 按前缀匹配才能命中
+    # （审计 M1）。小时后缀仅作同日多分区去重依据，不参与日期解析。
+    now_utc = datetime.now(tz=timezone.utc)
+    timestamp_str = f"{date_str}-{now_utc.strftime('%H')}"
+    dt_dir = DATA_ROOT / f"dt={timestamp_str}"
     try:
-        await _run_once_locked(date_str, bases)
+        await _run_once_locked(date_str, bases, now_utc, dt_dir)
+    except Exception:
+        # ETL 中途失败会留下无 manifest 的空壳分区，立即清理（审计 H2），
+        # 避免残分区干扰同日去重、误导 loader 选择，或阻塞下次回填。
+        try:
+            cleanup_old_partitions(settings.backup_retention_days)
+        except Exception:
+            logger.warning("cleanup after ETL failure skipped", exc_info=True)
+        raise
     finally:
         lock.release()
 
@@ -168,16 +192,13 @@ async def run_once(date_str: str, bases: List[str], notify: bool = False) -> Non
             logger.error("notify step skipped", exc_info=True)
 
 
-async def _run_once_locked(date_str: str, bases: List[str]) -> None:
+async def _run_once_locked(date_str: str, bases: List[str], now_utc: datetime, dt_dir: Path) -> None:
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
 
-    now_utc = datetime.now(tz=timezone.utc)
     asof_ts = int(now_utc.timestamp() * 1000)
-    timestamp_str = now_utc.strftime("%Y-%m-%d-%H")
-    dt_dir = DATA_ROOT / f"dt={timestamp_str}"
     dt_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info("ETL start date=%s bases=%s", timestamp_str, bases)
+    logger.info("ETL start date=%s bases=%s", dt_dir.name.split("=", 1)[1], bases)
 
     async with httpx.AsyncClient() as client:
         # 三组请求相互独立，单次 gather 全并发，缩短网络等待总时长
@@ -398,6 +419,20 @@ def cleanup_old_partitions(keep_days: int) -> None:
         logger.info("Partition cleanup done removed=%d keep_days=%d", removed, keep_days)
 
 
+def _validate_date(date_str: str) -> str:
+    """校验 --date 必须为规范 YYYY-MM-DD（零填充）。
+
+    先正则全匹配（与 loader._DATE_RE 保持一致，拒绝 2026-8-5 这类非零填充
+    日期——strptime 不要求零填充，但分区目录按 dt=YYYY-MM-DD-* 前缀解析），
+    再 strptime 校验日历合法性（拒绝 2026-13-40、2026-02-30）。
+    """
+    import re as _re
+    if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_str):
+        raise ValueError(f"--date must be YYYY-MM-DD, got {date_str!r}")
+    datetime.strptime(date_str, "%Y-%m-%d")
+    return date_str
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", help="YYYY-MM-DD (default today UTC)")
@@ -407,6 +442,11 @@ def main():
     date_str = args.date
     if not date_str:
         date_str = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+    else:
+        try:
+            _validate_date(date_str)
+        except ValueError as exc:
+            ap.error(str(exc))
     asyncio.run(run_once(date_str, bases=args.bases))
 
 

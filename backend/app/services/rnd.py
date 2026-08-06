@@ -30,8 +30,8 @@ from .svi import butterfly_g, raw_svi_w
 # numpy 1.26 只有 trapz，2.x 改名 trapezoid；兼容两者
 _trapezoid = getattr(np, "trapezoid", None) or np.trapz
 
-# 密度网格（对数货币度）：±3 覆盖 F·e^±3 ≈ [5%, 2000%] 的价格范围
-_DEFAULT_K_RANGE = (-3.0, 3.0)
+# 密度网格（对数货币度）：默认按 ATM 总方差动态扩展，见 rnd_from_svi。
+# 固定 ±3 覆盖 F·e^±3 ≈ [5%, 2000%] 的价格范围（显式传 k_range 时使用）
 _DEFAULT_N_GRID = 2401
 
 
@@ -52,14 +52,21 @@ def rnd_from_svi(
     params: Dict,
     t_years: float,
     forward: float,
-    k_range: tuple = _DEFAULT_K_RANGE,
+    k_range: Optional[tuple] = None,
     n_grid: int = _DEFAULT_N_GRID,
 ) -> RND:
     """由 SVI 切片参数构建隐含密度网格。
 
     params: fit_svi_slice 返回的 a/b/rho/m/sigma（quality 须为 ok）。
+    k_range: 显式对数货币度范围；None 时按 ATM 总方差动态扩展至
+        ±max(3, 4·√w_atm+1)——高波动/长期限切片固定 ±3 会截断尾部，
+        导致 ES / 尾部概率系统性低估（审计 M2 修复）。
     """
     a, b, rho, m, sigma = (params[k2] for k2 in ("a", "b", "rho", "m", "sigma"))
+    if k_range is None:
+        w_atm = float(raw_svi_w(np.array([0.0]), a, b, rho, m, sigma)[0])
+        half = max(3.0, 4.0 * math.sqrt(max(w_atm, 1e-12)) + 1.0)
+        k_range = (-half, half)
     k = np.linspace(k_range[0], k_range[1], n_grid)
     w = np.maximum(raw_svi_w(k, a, b, rho, m, sigma), 1e-12)
     d2 = -k / np.sqrt(w) - 0.5 * np.sqrt(w)

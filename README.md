@@ -32,8 +32,8 @@ Option Scanner automatically pulls daily BTC/ETH options data from the [Deribit]
 
 | Feature          | Endpoint                                   | Description                                                                                                             |
 | ---------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| Expiry Scan      | `POST /api/spread/scan`                    | Vertical spreads (CALL/PUT × DEBIT/CREDIT) grouped by expiry, sorted by odds; liquidity-penalized ranking, dual `mid`/`conservative` pricing |
-| Opinion          | `POST /api/spread/opinion`                 | Filter optimal spreads for a target price and directional view (`up`/`down`/`not_up`/`not_down`)                         |
+| Expiry Scan      | `POST /api/spread/scan`                    | Vertical spreads (CALL/PUT × DEBIT/CREDIT) grouped by expiry; unified reward/risk odds (DEBIT = width ÷ net debit, CREDIT = net credit ÷ width), liquidity-penalized ranking, dual `mid`/`conservative` pricing, USD net max profit/loss |
+| Opinion          | `POST /api/spread/opinion`                 | Filter optimal spreads for a target price and directional view (`up`/`down`/`not_up`/`not_down`); strike order never affects break-even/PoP             |
 | Cash-Secured Put | `POST /api/strategy/csp`                   | Collect premium; if price drops, buy the coin at a discount. Delta, assignment probability, APR, composite score          |
 | Covered Call     | `POST /api/strategy/cc`                    | Collect premium; if price rises, sell the coin at a profit. Upside %, APR, composite score                                |
 | Iron Condor      | `POST /api/strategy/iron-condor`           | Short OTM put spread + short OTM call spread; legs placed by SVI-delta, win rate from RND, margin estimated              |
@@ -66,7 +66,7 @@ From the fitted surface, the Breeden-Litzenberger density is built:
 pdf(k) = g(k)·n(d2(k)) / √w(k)
 ```
 
-replacing Monte Carlo for win probability (PoP), VaR/CVaR and tail-risk estimates. It captures the volatility smile's fat tails, which a plain lognormal (BS) model systematically underestimates.
+replacing Monte Carlo for win probability (PoP), VaR/CVaR and tail-risk estimates. It captures the volatility smile's fat tails, which a plain lognormal (BS) model systematically underestimates. The density grid auto-expands with ATM total variance (`±max(3, 4·√w_atm+1)`), so high-volatility / long-dated slices never truncate tail risk (ES / tail probabilities stay accurate).
 
 ### 3. IVP / IVR
 
@@ -90,7 +90,8 @@ Standard-account formulas: naked short Call IM = `max(0.15 − OTM%, 0.10) + mar
 - `max_gap_steps` bounds pair enumeration from `O(n²)` to `O(n·g)`.
 - `direction='both'` combines up/down scans into a single request.
 - In-process chain cache keyed by `(date, base)` with `asof_ts` versioning; SVI surface / DVOL caches keyed by file mtime.
-- Composite scores filter out candidates below 45 (configurable constant) to keep results actionable.
+- Anchored-interval composite scores (fixed reference ranges, not dynamic min-max) filter out candidates below 45 — scores stay comparable across scans and candidates.
+- Vertical-spread metrics use a single USD net convention and one reward/risk odds definition, regardless of strike order.
 - Parquet appends are guarded by cross-process file locks; partitions older than 30 days are cleaned automatically.
 
 ## Directory Structure
@@ -104,7 +105,7 @@ option-scanner/
 │   │   └── services/     # bs, svi, rnd, margin, scanner, single_leg, multi_leg,
 │   │                     # loader, vol_history, notify, preprocessing
 │   ├── scripts/          # etl_daily.py, etl_scheduler.py, backfill_dvol.py, cleanup_old_data.py
-│   └── tests/            # pytest suite (60 tests)
+│   └── tests/            # pytest suite (82 tests)
 ├── frontend/             # Next.js static-export UI (trilingual)
 ├── ops/                  # deploy helpers, Caddy example
 ├── Dockerfile.combined   # single-container image (frontend build + backend venv)
@@ -276,6 +277,8 @@ docker compose up -d
 | GET    | `/api/health`                   | Health check                                 |
 
 Enable interactive docs with `API_DOCS_ENABLED=true` (`/docs`).
+
+**API conventions**: `/api/meta/vol` term-structure IVs (`atm_iv` / `rr25` / `bf25`) are decimals (`0.45` = 45%); vertical-spread endpoints return `max_profit` / `max_loss` in USD net terms; inverted `min`/`max` parameter pairs (e.g. `dte_min` > `dte_max`) are rejected with `422`.
 
 ## Frequently Asked Questions
 

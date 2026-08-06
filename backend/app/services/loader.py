@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 DATA_ROOT: Path = settings.data_root
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_BASE_RE = re.compile(r"^(BTC|ETH)$")
+# 币种白名单随 settings.etl_bases 动态生成（审计 L9 修复）
+_BASE_RE = re.compile(settings.base_pattern)
 
 # 进程内链数据缓存：(date, base) -> (asof_ts, df, meta)。
 # 数据每天仅 ETL 变更一次；以 manifest.asof_ts 作版本号，ETL 写入新
@@ -56,6 +57,10 @@ def list_available_dates() -> List[str]:
                 try:
                     datetime.strptime(date, "%Y-%m-%d")
                 except ValueError:
+                    continue
+                # manifest 缺失的分区不可加载（load_chain_for 依赖 manifest），
+                # 排除掉避免前端拿到 404 日期（审计 M1 关联修复）
+                if not (p / "manifest.json").exists():
                     continue
                 dates_set.add(date)
     return sorted(list(dates_set))

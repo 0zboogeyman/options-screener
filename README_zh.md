@@ -32,8 +32,8 @@ Option Scanner 从 [Deribit](https://www.deribit.com) 公开 API 自动拉取每
 
 | 功能      | 端点                                       | 说明                                                                             |
 | ------- | ---------------------------------------- | ------------------------------------------------------------------------------ |
-| 到期日扫描  | `POST /api/spread/scan`                  | 按到期日扫描垂直价差（CALL/PUT × DEBIT/CREDIT），赔率排序；流动性惩罚排序、`mid`/`conservative` 双计价模式 |
-| 观点策略   | `POST /api/spread/opinion`               | 基于目标价与方向观点（`up`/`down`/`not_up`/`not_down`）筛选最优价差                                  |
+| 到期日扫描  | `POST /api/spread/scan`                  | 按到期日扫描垂直价差（CALL/PUT × DEBIT/CREDIT）；统一 reward/risk 赔率（DEBIT=宽度÷净支出、CREDIT=净收入÷宽度）、流动性惩罚排序、`mid`/`conservative` 双计价模式、USD 净值口径最大盈亏 |
+| 观点策略   | `POST /api/spread/opinion`               | 基于目标价与方向观点（`up`/`down`/`not_up`/`not_down`）筛选最优价差；行权价传参顺序不影响盈亏平衡点与 PoP                                  |
 | 低吸收租   | `POST /api/strategy/csp`                 | 收权利金；若价格下跌，按折扣价买入标的。Delta、行权概率、APR、综合评分                                        |
 | 高抛收租   | `POST /api/strategy/cc`                  | 收权利金；若价格上涨，按溢价卖出标的。上涨空间、APR、综合评分                                              |
 | 铁秃鹰    | `POST /api/strategy/iron-condor`         | 卖 OTM Put 价差 + 卖 OTM Call 价差；SVI-delta 定位短腿，RND 计算胜率，保证金估算                            |
@@ -66,7 +66,7 @@ w(k) = a + b·(ρ·(k−m) + √((k−m)² + σ²))
 pdf(k) = g(k)·n(d2(k)) / √w(k)
 ```
 
-替代蒙特卡洛计算获胜概率（PoP）、VaR/CVaR 与尾部风险。它包含波动率微笑的肥尾特征，而纯对数正态（BS）模型会系统性低估尾部。
+替代蒙特卡洛计算获胜概率（PoP）、VaR/CVaR 与尾部风险。它包含波动率微笑的肥尾特征，而纯对数正态（BS）模型会系统性低估尾部。密度网格按 ATM 总方差自动扩展（`±max(3, 4·√w_atm+1)`），高波动/长期限切片不再截断尾部，ES / 尾部概率保持准确。
 
 ### 3. IVP / IVR
 
@@ -90,7 +90,8 @@ pdf(k) = g(k)·n(d2(k)) / √w(k)
 - `max_gap_steps` 将组合枚举复杂度从 `O(n²)` 降到 `O(n·g)`。
 - `direction='both'` 将上下行扫描合并为一次请求。
 - 进程内链缓存以 `(date, base)` 为键、`asof_ts` 为版本号；SVI 曲面 / DVOL 缓存以文件 mtime 为键。
-- 综合评分过滤掉 45 分以下的候选（可配置常量），保证结果可执行。
+- 锚定区间综合评分（固定参考区间，而非动态 min-max）过滤掉 45 分以下的候选——分数跨扫描可比，候选不会因样本变化漂移。
+- 垂直价差指标统一为单一 USD 净值口径与单一 reward/risk 赔率定义，与行权价传参顺序无关。
 - parquet 追加写入由跨进程文件锁保护；超过 30 天的分区自动清理。
 
 ## 目录结构
@@ -104,7 +105,7 @@ option-scanner/
 │   │   └── services/     # bs, svi, rnd, margin, scanner, single_leg, multi_leg,
 │   │                     # loader, vol_history, notify, preprocessing
 │   ├── scripts/          # etl_daily.py, etl_scheduler.py, backfill_dvol.py, cleanup_old_data.py
-│   └── tests/            # pytest 测试套件（60 个用例）
+│   └── tests/            # pytest 测试套件（82 个用例）
 ├── frontend/             # Next.js 静态导出界面（三语言）
 ├── ops/                  # 部署脚本、Caddy 示例
 ├── Dockerfile.combined   # 单容器镜像（前端构建 + 后端 venv）
@@ -276,6 +277,8 @@ docker compose up -d
 | GET  | `/api/health`               | 健康检查                  |
 
 设置 `API_DOCS_ENABLED=true` 可启用交互式文档（`/docs`）。
+
+**API 约定**：`/api/meta/vol` 期限结构中的 IV（`atm_iv` / `rr25` / `bf25`）为小数（`0.45` 表示 45%）；垂直价差端点返回的 `max_profit` / `max_loss` 为 USD 净值；成对的 `min`/`max` 参数倒置（如 `dte_min` > `dte_max`）会被拒绝并返回 `422`。
 
 ## 常见问题
 

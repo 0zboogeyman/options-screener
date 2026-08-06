@@ -11,7 +11,8 @@ from __future__ import annotations
 import pytest
 
 from app.services.loader import ChainMeta
-from app.services.single_leg import CSP_SCORE_WEIGHTS, MIN_SCORE, _apply_scores, scan_csp
+from app.services.scoring import MIN_SCORE, apply_scores
+from app.services.single_leg import CSP_SCORE_WEIGHTS, scan_csp
 
 _ASOF = 1784908800000          # 2026-07-26 UTC
 _EXPIRY = 1787904000000        # 2026-08-28 UTC，DTE ≈ 34.7 天
@@ -61,7 +62,7 @@ def test_apply_scores_filters_below_min_score():
     good = {"apr": 0.8, "discount_pct": 0.6, "assign_prob": 0.05, "liquidity_score": 0.9}
     bad = {"apr": 0.01, "discount_pct": 0.01, "assign_prob": 0.95, "liquidity_score": 0.02}
     cands = [dict(good), dict(bad)]
-    _apply_scores(cands, CSP_SCORE_WEIGHTS)
+    apply_scores(cands, CSP_SCORE_WEIGHTS)
     # 高分候选必须保留且分数达标
     assert cands, "至少应保留高分候选"
     assert all(c["score"] >= MIN_SCORE for c in cands)

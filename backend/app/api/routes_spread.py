@@ -11,7 +11,7 @@ from ..services.vol_history import load_svi_surface
 
 
 class ScanRequest(BaseModel):
-    base: str = Field(..., pattern=r"^(BTC|ETH)$")
+    base: str = Field(..., pattern=settings.base_pattern)
     date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$", description="YYYY-MM-DD")
     direction: str = Field(..., pattern=r"^(up|down|both)$", description="up=仅CALL, down=仅PUT, both=全部（单次请求即可，推荐）")
     tenor: str = Field(..., pattern=r"^(near|mid|far)$")
@@ -23,7 +23,7 @@ class ScanRequest(BaseModel):
 
 
 class OpinionRequest(BaseModel):
-    base: str = Field(..., pattern=r"^(BTC|ETH)$")
+    base: str = Field(..., pattern=settings.base_pattern)
     horizon: str = Field(..., pattern=r"^(short|mid|long)$", description="short: ≤1month, mid: 1-3months, long: ≥3months")
     view: str = Field(..., pattern=r"^(up|down|not_up|not_down)$", description="up/down: debit spread; not_up/not_down: credit spread")
     target_price: float = Field(..., gt=0, description="Target price in USD")

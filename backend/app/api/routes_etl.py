@@ -18,12 +18,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import queue
 import secrets
 import threading
 from datetime import datetime, timezone
-from typing import Any, Dict
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -77,6 +79,10 @@ def _worker_loop() -> None:
             asyncio.run(etl_daily.run_once(date_str, bases=bases))
             _ETL_STATE.update(running=False, last_finished=_utc_now_iso(), last_error=None)
             logger.info("manual ETL finished date=%s", date_str)
+        except etl_daily.EtlAlreadyRunningError:
+            # 锁竞争（另一进程/调度器正在跑 ETL）属正常跳过，不污染失败状态
+            _ETL_STATE.update(running=False, last_finished=_utc_now_iso(), last_error=None)
+            logger.info("manual ETL skipped: another run in progress (date=%s)", date_str)
         except Exception as exc:  # noqa: BLE001 — 状态必须落盘，worker 线程不能死
             # 不向状态里写入原始异常文本（防止经 /etl/status 泄漏敏感路径/SQL 等）；
             # 仅记录分类错误码，完整 traceback 落服务端日志。
@@ -125,4 +131,24 @@ def trigger_etl(request: Request) -> Dict[str, Any]:
 @limiter.limit(_STATUS_RATE_LIMIT)
 def etl_status(request: Request) -> Dict[str, Any]:
     _check_admin_token(request)
-    return dict(_ETL_STATE)
+    state = dict(_ETL_STATE)
+    # 审计 M4：并入最近一次调度运行记录（etl_runs.json 由 etl_scheduler 写入，
+    # 容器重启后历史仍可查；读取失败静默降级）
+    state["last_scheduled"] = _read_last_scheduled()
+    return state
+
+
+def _read_last_scheduled() -> Optional[Dict[str, Any]]:
+    try:
+        runs_path = Path(settings.data_root).parent / "etl_runs.json"
+        if not runs_path.exists():
+            return None
+        data = json.loads(runs_path.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            return None
+        for rec in reversed(data):
+            if isinstance(rec, dict) and rec.get("trigger") == "scheduler":
+                return {k: rec.get(k) for k in ("run_id", "date", "started_at", "finished_at", "status", "attempts", "error") if rec.get(k) is not None}
+        return None
+    except Exception:
+        return None
