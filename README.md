@@ -32,7 +32,7 @@ Option Scanner automatically pulls daily BTC/ETH options data from the [Deribit]
 
 | Feature          | Endpoint                                   | Description                                                                                                             |
 | ---------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| Expiry Scan      | `POST /api/spread/scan`                    | Vertical spreads (CALL/PUT × DEBIT/CREDIT) grouped by expiry; unified reward/risk odds (DEBIT = width ÷ net debit, CREDIT = net credit ÷ width), liquidity-penalized ranking, dual `mid`/`conservative` pricing, USD net max profit/loss |
+| Expiry Scan      | `POST /api/spread/scan`                    | Vertical spreads (CALL/PUT × DEBIT/CREDIT) grouped by expiry; unified reward/risk odds (DEBIT = (width − net debit) ÷ net debit, CREDIT = net credit ÷ (width − net credit)), liquidity-penalized ranking, dual `mid`/`conservative` pricing, USD net max profit/loss |
 | Opinion          | `POST /api/spread/opinion`                 | Filter optimal spreads for a target price and directional view (`up`/`down`/`not_up`/`not_down`); strike order never affects break-even/PoP             |
 | Cash-Secured Put | `POST /api/strategy/csp`                   | Collect premium; if price drops, buy the coin at a discount. Delta, assignment probability, APR, composite score          |
 | Covered Call     | `POST /api/strategy/cc`                    | Collect premium; if price rises, sell the coin at a profit. Upside %, APR, composite score                                |
@@ -105,7 +105,7 @@ option-scanner/
 │   │   └── services/     # bs, svi, rnd, margin, scanner, single_leg, multi_leg,
 │   │                     # loader, vol_history, notify, preprocessing
 │   ├── scripts/          # etl_daily.py, etl_scheduler.py, backfill_dvol.py, cleanup_old_data.py
-│   └── tests/            # pytest suite (82 tests)
+│   └── tests/            # pytest suite (103 tests)
 ├── frontend/             # Next.js static-export UI (trilingual)
 ├── ops/                  # deploy helpers, Caddy example
 ├── Dockerfile.combined   # single-container image (frontend build + backend venv)
@@ -216,6 +216,8 @@ All variables have source-code defaults; leaving them blank uses the default. Ed
 
 | Variable                | Description                                                                          | Default           |
 | ----------------------- | ------------------------------------------------------------------------------------ | ----------------- |
+| `ENV`                   | Runtime env: `dev` (zero-config default) / `prod`. In `prod` the admin endpoints return `403` when `ADMIN_TOKEN` is unset | `dev`             |
+| `TRUSTED_PROXIES`       | Trusted reverse-proxy IPs/CIDRs (JSON array). Only then are `X-Forwarded-For`/`X-Real-IP` trusted for rate limiting & geo IP | `[]`              |
 | `PUBLIC_PORT`           | External port (set to `127.0.0.1:3116` when behind a reverse proxy)                  | `3116`            |
 | `CORS_ORIGINS`          | CORS allowlist as a JSON array; never use `["*"]`                                    | `[]`              |
 | `LOG_LEVEL`             | `DEBUG` / `INFO` / `WARNING` / `ERROR` (never use `DEBUG` in production)             | `INFO`            |
@@ -233,10 +235,11 @@ All variables have source-code defaults; leaving them blank uses the default. Ed
 
 ### Production Deployment Checklist
 
-1. **Always set `ADMIN_TOKEN`** on public networks — without it, any visitor can trigger ETL and burn Deribit API quota.
+1. **Always set `ENV=prod` + `ADMIN_TOKEN`** on public networks — in `prod`, unset `ADMIN_TOKEN` makes admin endpoints return `403`; without a token, any visitor could trigger ETL and burn Deribit API quota.
 2. **Keep `API_DOCS_ENABLED=false`** and `LOG_LEVEL=INFO` (or higher) in production.
-3. **Optional**: configure Telegram push.
-4. **Optional**: bind to a domain via reverse proxy (see below) and set `PUBLIC_PORT=127.0.0.1:3116` to block direct IP:port access.
+3. **Set `TRUSTED_PROXIES`** to your reverse-proxy IPs/CIDRs so rate limiting and geo detection see the real client IP behind the proxy.
+4. **Optional**: configure Telegram push.
+5. **Optional**: bind to a domain via reverse proxy (see below) and set `PUBLIC_PORT=127.0.0.1:3116` to block direct IP:port access.
 
 ### Domain Binding & Reverse Proxy
 
@@ -278,7 +281,7 @@ docker compose up -d
 
 Enable interactive docs with `API_DOCS_ENABLED=true` (`/docs`).
 
-**API conventions**: `/api/meta/vol` term-structure IVs (`atm_iv` / `rr25` / `bf25`) are decimals (`0.45` = 45%); vertical-spread endpoints return `max_profit` / `max_loss` in USD net terms; inverted `min`/`max` parameter pairs (e.g. `dte_min` > `dte_max`) are rejected with `422`.
+**API conventions**: `/api/meta/vol` term-structure IVs (`atm_iv` / `rr25` / `bf25`) are decimals (`0.45` = 45%); vertical-spread endpoints return `max_profit` / `max_loss` in USD net terms; inverted `min`/`max` parameter pairs (e.g. `dte_min` > `dte_max`) are rejected with `422`; requests with body over `MAX_BODY_BYTES` (default 1 MiB) are rejected with `413`.
 
 ## Frequently Asked Questions
 

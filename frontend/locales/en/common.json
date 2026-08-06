@@ -85,8 +85,9 @@
     "refresh": "Refresh Data",
     "failed": "Data update failed: {{error}}",
     "success": "Data updated",
-    "invalidToken": "Invalid admin token. Re-enter via ?admin=TOKEN",
-    "conflict": "An update task is already running"
+    "invalidToken": "Invalid admin token",
+    "conflict": "An update task is already running",
+    "timeout": "Data update timed out. Please try again"
   },
   "csp": {
     "title": "Cash-Secured Put (CSP)",

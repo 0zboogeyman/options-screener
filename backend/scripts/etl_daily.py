@@ -79,12 +79,13 @@ class EtlAlreadyRunningError(RuntimeError):
 
 
 def _retryable(exc: BaseException) -> bool:
-    """审计 L1：raise_for_status() 抛的 HTTPStatusError 是 HTTPError 子类，
-    若按类型统一重试会把 4xx（参数错/限流等不可恢复错误）也反复重试。
-    谓词：HTTPStatusError 仅 5xx 重试；其余 HTTPError/Timeout/ValueError 维持重试，
-    4xx 立即抛出。"""
+    """统一重试谓词（etl_daily / backfill_dvol 共用，审计 D-4）。
+
+    HTTPStatusError：429（限流，按退避重试）与 5xx 可重试；其余 4xx（参数错等
+    不可恢复错误）立即失败，避免空耗重试。其他 HTTPError/Timeout/ValueError
+    维持重试。"""
     if isinstance(exc, httpx.HTTPStatusError):
-        return exc.response.status_code >= 500
+        return exc.response.status_code == 429 or exc.response.status_code >= 500
     return isinstance(exc, (httpx.HTTPError, httpx.TimeoutException, ValueError))
 
 
@@ -157,12 +158,13 @@ async def run_once(date_str: str, bases: List[str], notify: bool = False) -> Non
     try:
         await _run_once_locked(date_str, bases, now_utc, dt_dir)
     except Exception:
-        # ETL 中途失败会留下无 manifest 的空壳分区，立即清理（审计 H2），
-        # 避免残分区干扰同日去重、误导 loader 选择，或阻塞下次回填。
+        # ETL 中途失败会留下无 manifest 的空壳分区：仅清理本次运行创建的
+        # 目录本身，不做全量 cleanup——全量清理可能误删同日已有的完整好分区
+        # （审计 D-1），避免"坏分区顶掉好分区"。
         try:
-            cleanup_old_partitions(settings.backup_retention_days)
+            _cleanup_own_shell(dt_dir)
         except Exception:
-            logger.warning("cleanup after ETL failure skipped", exc_info=True)
+            logger.warning("cleanup of failed run shell skipped", exc_info=True)
         raise
     finally:
         lock.release()
@@ -300,9 +302,11 @@ async def _run_once_locked(date_str: str, bases: List[str], now_utc: datetime, d
         bases_parsed: List[str] = []
         for name in df["instrument"].tolist():
             meta = ins_map.get(name)
-            strikes.append(float(meta.get("strike")))
+            # 防御式默认值（审计 D-7）：单个 instrument 缺字段时用 0 兜底，
+            # 由下方 strike/expiry 过滤剔除，而不是让整个 ETL 因 TypeError 全灭
+            strikes.append(float(meta.get("strike", 0) or 0))
             types.append("C" if str(meta.get("option_type", "")).lower().startswith("c") else "P")
-            expiries.append(int(meta.get("expiration_timestamp")))
+            expiries.append(int(meta.get("expiration_timestamp", 0) or 0))
             bases_parsed.append(str(meta.get("base_currency", base)))
 
         df["strike"] = strikes
@@ -311,6 +315,11 @@ async def _run_once_locked(date_str: str, bases: List[str], now_utc: datetime, d
         df["base"] = bases_parsed
         df["date"] = date_str
         df["asof_ts"] = asof_ts
+
+        # 剔除元数据缺失（strike=0 / expiry=0）的脏行，避免污染下游（审计 D-7）
+        df = df[(df["strike"] > 0) & (df["expiry_ts"] > 0)].reset_index(drop=True)
+        if df.empty:
+            continue
 
         # Deribit mark_iv 是百分数形式（42.5 表示 42.5%），统一归一为小数，
         # 供下游 BS delta / POP 计算直接使用
@@ -368,6 +377,12 @@ async def _run_once_locked(date_str: str, bases: List[str], now_utc: datetime, d
                 logger.error("Failed to append SVI rows base=%s", base, exc_info=True)
 
     manifest["rows"] = total_rows
+
+    # 全部 base 均无数据：不写空 manifest（避免产出不可用日期、污染同日去重），
+    # 抛出异常让 run_once 清理本次空壳并让调度器重试（审计 D-1）
+    if total_rows == 0 or not manifest["bases"]:
+        raise ValueError("ETL produced no data for any base (all fetches failed)")
+
     tmp_manifest = dt_dir / "manifest.json.tmp"
     tmp_manifest.write_text(json.dumps(manifest, indent=2))
     os.replace(tmp_manifest, dt_dir / "manifest.json")
@@ -376,12 +391,38 @@ async def _run_once_locked(date_str: str, bases: List[str], now_utc: datetime, d
     cleanup_old_partitions(settings.backup_retention_days)
 
 
+def _is_complete_partition(p: Path) -> bool:
+    """分区是否完整：manifest 存在且 rows>0（失败/空跑残留无 manifest 视为不完整）。"""
+    mpath = p / "manifest.json"
+    if not mpath.exists():
+        return False
+    try:
+        return int(json.loads(mpath.read_text()).get("rows", 0)) > 0
+    except (ValueError, OSError):
+        return False
+
+
+def _cleanup_own_shell(dt_dir: Path) -> None:
+    """删除本次运行留下的空壳分区：仅当目录不存在 manifest（写入未完成）。
+
+    不做全量 cleanup——全量清理可能误删同日已有的完整好分区（审计 D-1）。
+    """
+    if not dt_dir.exists():
+        return
+    if (dt_dir / "manifest.json").exists():
+        return
+    shutil.rmtree(dt_dir, ignore_errors=True)
+    logger.info("Removed incomplete partition shell %s", dt_dir.name)
+
+
 def cleanup_old_partitions(keep_days: int) -> None:
     """清理 DATA_ROOT 下的历史分区，防止磁盘无限增长。
 
     规则：
-      * 同一天存在多个小时分区（手动多次触发 ETL）时只保留最新一个；
-      * 分区时间早于 当前时间 - keep_days 的整目录删除。
+      * 同一天存在多个小时分区（手动多次触发 ETL）时只保留最新一个——
+        但仅当"被保留分区"是完整分区（有 manifest 且 rows>0）时才删旧分区，
+        避免完整好分区被失败残留的坏分区顶掉（审计 D-1）；
+      * 分区时间早于 当前时间 - keep_days 的整目录删除（仅针对完整分区）。
     """
     if keep_days <= 0:
         return
@@ -393,27 +434,35 @@ def cleanup_old_partitions(keep_days: int) -> None:
             by_date.setdefault(ts[:10], []).append(p)
 
     removed = 0
-    # 同日去重：按目录名排序后仅保留最新
+    # 同日去重：最新分区完整才允许删除旧分区；最新分区不完整（失败残留）
+    # 时保留旧分区等待重跑，避免好数据被坏分区顶掉
     for day, parts in by_date.items():
         parts.sort(key=lambda x: x.name)
+        if len(parts) < 2:
+            continue
+        newest = parts[-1]
+        if not _is_complete_partition(newest):
+            continue
         for old in parts[:-1]:
             shutil.rmtree(old, ignore_errors=True)
             removed += 1
             logger.info("Removed superseded partition %s", old.name)
 
-    # 超期清理
+    # 超期清理：仅清理完整分区（避免误删仍在写入的分区）
     cutoff = datetime.now(tz=timezone.utc) - timedelta(days=keep_days)
     for parts in by_date.values():
-        latest = parts[-1]
-        ts = latest.name.split("=", 1)[1]
-        try:
-            part_dt = datetime.strptime(ts, "%Y-%m-%d-%H").replace(tzinfo=timezone.utc)
-        except ValueError:
-            continue
-        if part_dt < cutoff:
-            shutil.rmtree(latest, ignore_errors=True)
-            removed += 1
-            logger.info("Removed expired partition %s", latest.name)
+        for p in parts:
+            if not _is_complete_partition(p):
+                continue
+            ts = p.name.split("=", 1)[1]
+            try:
+                part_dt = datetime.strptime(ts, "%Y-%m-%d-%H").replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+            if part_dt < cutoff:
+                shutil.rmtree(p, ignore_errors=True)
+                removed += 1
+                logger.info("Removed expired partition %s", p.name)
 
     if removed:
         logger.info("Partition cleanup done removed=%d keep_days=%d", removed, keep_days)

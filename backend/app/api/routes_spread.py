@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ..core.config import settings
 from ..core.ratelimit import limiter
@@ -20,6 +22,15 @@ class ScanRequest(BaseModel):
     max_width: float | None = Field(default=None, gt=0, description="max K2-K1 width in underlying units")
     max_gap_steps: int = Field(default=10, ge=1, le=100, description="两腿之间允许的最大行权价步数")
     pricing_mode: str = Field(default="mid", pattern=r"^(mid|conservative)$", description="mid=中间价；conservative=可执行价（买ask卖bid）")
+
+    @model_validator(mode="after")
+    def _check_date(self):
+        # 审计 E-3：格式正则之外的日历合法性校验（拒绝 2026-99-99）
+        try:
+            datetime.strptime(self.date, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError("date must be a valid calendar date (YYYY-MM-DD)")
+        return self
 
 
 class OpinionRequest(BaseModel):

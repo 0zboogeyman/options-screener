@@ -9,7 +9,7 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -65,6 +65,63 @@ def _frontend_dist() -> Path:
     return candidates[0]  # 都不存在时返回仓库布局路径（触发 API-only 警告）
 
 
+class _BodyTooLarge(Exception):
+    """请求体超过上限，由 BodySizeLimitMiddleware 内部使用。"""
+
+
+class BodySizeLimitMiddleware:
+    """纯 ASGI 请求体大小限制（审计 SEC-4）。
+
+    主路径：在调用内层 app 前读取 Content-Length 头，超限立即返回 413——
+    body 完全未进入内存，也不受 BaseHTTPMiddleware 异常转换的影响。
+    兜底路径（chunked 无 Content-Length）：在 receive 层计数，超限抛出
+    _BodyTooLarge 中断（这类请求极少，且异常被 BaseHTTPMiddleware 捕获时
+    降级为 400，仍可拒绝超大 body）。
+    注意不得给 request.receive 赋值（BaseHTTPMiddleware 的 _CachedRequest
+    receive 是只读属性），因此以纯 ASGI 形式实现。
+    """
+
+    def __init__(self, app, max_bytes: int):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # 主路径：Content-Length 预检（所有 JSON 客户端都携带该头）
+        for k, v in scope.get("headers", []):
+            if k == b"content-length":
+                try:
+                    if int(v) > self.max_bytes:
+                        response = PlainTextResponse("request body too large", status_code=413)
+                        await response(scope, receive, send)
+                        return
+                except (ValueError, TypeError):
+                    pass
+                break
+
+        # 兜底：chunked（无 Content-Length）时在 receive 层计数
+        received = 0
+        limit = self.max_bytes
+
+        async def limited_receive():
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > limit:
+                    raise _BodyTooLarge(received)
+            return message
+
+        try:
+            await self.app(scope, limited_receive, send)
+        except _BodyTooLarge:
+            response = PlainTextResponse("request body too large", status_code=413)
+            await response(scope, receive, send)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """应用生命周期钩子：优雅启动/关闭。
@@ -114,13 +171,12 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
+        # 审计 E-1：无论日志级别都不向客户端回显异常详情（内部路径/实现细节
+        # 可能泄露）；完整 traceback 仅落服务端日志。
         logger.error("Unhandled error %s %s: %s", request.method, request.url.path, str(exc), exc_info=True)
         return JSONResponse(
             status_code=500,
-            content={
-                "error": "internal_server_error",
-                "detail": str(exc) if settings.log_level.upper() == "DEBUG" else "An unexpected error occurred",
-            },
+            content={"error": "internal_server_error", "detail": "An unexpected error occurred"},
         )
 
     @app.get("/api/health")
@@ -150,6 +206,10 @@ def create_app() -> FastAPI:
     app.include_router(multi_leg_router, prefix="/api")
     app.include_router(etl_router, prefix="/api")
     app.include_router(geo_router, prefix="/api")
+
+    # 请求体大小限制：注册在所有 @app.middleware("http") 装饰器之后，
+    # 使其处于最外层，先于 BaseHTTPMiddleware 缓存 body（审计 SEC-4）。
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_body_bytes)
 
     # 前端静态导出（Next.js output:export）同源托管：
     # API 路由先注册先匹配，"/" 挂载只兜底页面与静态资源，/api/* 不受影响。

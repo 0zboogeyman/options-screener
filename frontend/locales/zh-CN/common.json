@@ -85,8 +85,9 @@
     "refresh": "更新数据",
     "failed": "数据更新失败：{{error}}",
     "success": "数据已更新",
-    "invalidToken": "管理口令无效，请通过 ?admin=口令 重新进入",
-    "conflict": "已有更新任务在运行中"
+    "invalidToken": "管理口令无效",
+    "conflict": "已有更新任务在运行中",
+    "timeout": "数据更新超时，请稍后重试"
   },
   "csp": {
     "title": "低吸收租（担保卖 Put · CSP）",

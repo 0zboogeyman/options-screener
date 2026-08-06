@@ -12,7 +12,7 @@ import { PayoffLeg, portfolioPnlAt, portfolioDeltaAt } from '../lib/payoff';
 
 interface Props {
   legs: PayoffLeg[];
-  spot: number;
+  spot: number | null;   // 审计 Q-1：后端可为 null，组件内渲染占位
 }
 
 const SHOCKS = [-0.10, -0.05, 0, 0.05, 0.10];
@@ -24,15 +24,28 @@ function fmtUsd(v: number): string {
 
 export default function ScenarioTable({ legs, spot }: Props) {
   const { t } = useTranslation();
-  const rows = useMemo(() => SHOCKS.map(shock => {
-    const sT = spot * (1 + shock);
-    return {
-      shock,
-      sT,
-      pnl: portfolioPnlAt(legs, sT, spot, 0),
-      delta: portfolioDeltaAt(legs, sT, 0),
-    };
-  }), [legs, spot]);
+  const rows = useMemo(() => {
+    // 审计 Q-1：spot 无效时不计算（避免 null 参与运算产出全 0 表）
+    if (spot == null || !(spot > 0)) return [];
+    return SHOCKS.map(shock => {
+      const sT = spot * (1 + shock);
+      return {
+        shock,
+        sT,
+        pnl: portfolioPnlAt(legs, sT, spot, 0),
+        delta: portfolioDeltaAt(legs, sT, 0),
+      };
+    });
+  }, [legs, spot]);
+
+  if (rows.length === 0) {
+    return (
+      <div style={{ minWidth: 260 }}>
+        <strong>{t('scenario.title')}</strong>
+        <div style={{ fontSize: 13, color: '#999', marginTop: 4 }}>{'—'}</div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ minWidth: 260 }}>

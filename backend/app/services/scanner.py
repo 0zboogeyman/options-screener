@@ -94,12 +94,19 @@ def _calc_vertical_metrics(kind: str, side: str, k1: float, k2: float, long_px: 
         premium = (short_px - long_px)        # 币种，净收入
         premium_usd = premium * s
         max_profit = premium_usd                  # USD
-        max_loss = strike_width - premium_usd     # USD 净值
+        # 与 margin.py 一致：净值亏损钳制 >=0，避免 conservative 计价下
+        # credit>width 产出负 max_loss / 虚高赔率（审计 A-3）
+        max_loss = max(strike_width - premium_usd, 0.0)  # USD 净值
 
-    if premium_usd <= 0 or strike_width <= 0:
-        odds = float("inf") if strike_width > 0 else float("nan")
+    # 统一 reward/risk 口径（审计 A-1）：DEBIT = max_profit/max_loss =
+    # (width−P)/P；CREDIT = max_profit/max_loss = P/(width−P)。两者都是
+    # "最大盈利/最大亏损"的比值，跨 DEBIT/CREDIT 可比，rank_key 的
+    # E = pop·(odds+1)−1 具备真实期望收益语义。负盈利（P>width）自然
+    # 得到负 odds，在排序中垫底。
+    if not math.isfinite(premium_usd) or premium_usd <= 0 or strike_width <= 0:
+        odds = float("nan")
     else:
-        odds = (strike_width / premium_usd) if side == "DEBIT" else (premium_usd / strike_width)
+        odds = (max_profit / max_loss) if max_loss > 0 else float("inf")
 
     if iv_at is not None and math.isfinite(premium_usd):
         k_be = (k_lo + premium_usd) if kind.upper() == "CALL" else (k_hi - premium_usd)
@@ -108,8 +115,11 @@ def _calc_vertical_metrics(kind: str, side: str, k1: float, k2: float, long_px: 
             vol_be = iv
     else:
         vol_be = iv
+    # 显式 isfinite 分支（审计 A-4）：不依赖 max(nan, x) 的参数顺序这个
+    # 隐式语义来传播 NaN——vol 为 NaN 时 pop 自然为 NaN、由调用方过滤。
+    vol = vol_be if (math.isfinite(vol_be) and vol_be > 0) else float("nan")
     pop = pop_for_vertical(kind=kind, side=side, s=s, k1=k_lo, k2=k_hi, premium=premium_usd,
-                           vol=max(vol_be, 1e-6), t_years=max(t_years, 1e-6))
+                           vol=vol, t_years=max(t_years, 1e-6))
 
     return {
         "premium": float(premium),

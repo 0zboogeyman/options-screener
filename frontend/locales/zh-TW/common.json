@@ -85,8 +85,9 @@
     "refresh": "更新數據",
     "failed": "數據更新失敗：{{error}}",
     "success": "數據已更新",
-    "invalidToken": "管理口令無效，請透過 ?admin=口令 重新進入",
-    "conflict": "已有更新任務在運行中"
+    "invalidToken": "管理口令無效",
+    "conflict": "已有更新任務在運行中",
+    "timeout": "資料更新逾時，請稍後重試"
   },
   "csp": {
     "title": "低吸收租（擔保賣 Put · CSP）",

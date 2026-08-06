@@ -58,6 +58,10 @@ _STATUS_RATE_LIMIT = "60/minute"
 def _check_admin_token(request: Request) -> None:
     expected = settings.admin_token
     if not expected:
+        # prod（ENV=prod）下未配置管理口令：管理端点一律 403（审计 SEC-1）。
+        # dev 环境留空放行，保持本地开发开箱即用。
+        if settings.env != "dev":
+            raise HTTPException(status_code=403, detail="admin token not configured")
         return
     provided = request.headers.get("X-Admin-Token", "")
     if not secrets.compare_digest(provided, expected):
@@ -102,10 +106,15 @@ def _ensure_worker() -> None:
 
 
 @router.post("/etl/run")
-@limiter.limit(_RUN_RATE_LIMIT)
 def trigger_etl(request: Request) -> Dict[str, Any]:
+    # 认证先于限流（审计 SEC-8）：无效/缺失 token 的请求不消耗 6/hour 配额，
+    # 防止攻击者用随机 token 打满配额使管理员无法触发 ETL。
     _check_admin_token(request)
+    return _run_etl(request)
 
+
+@limiter.limit(_RUN_RATE_LIMIT)
+def _run_etl(request: Request) -> Dict[str, Any]:
     # 先确保 worker 线程已启动（_ensure_worker 内部自带 _WORKER_LOCK，需在
     # 外层加锁前调用，避免非重入锁死锁）。worker 阻塞在队列 get 上，提前
     # 启动无副作用。

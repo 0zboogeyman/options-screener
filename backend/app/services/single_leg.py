@@ -48,6 +48,9 @@ def _filter_chain(chain_df: pd.DataFrame, meta, option_type: str,
     df = prep_chain(chain_df)
     df = df[df["option_type"].str.upper() == option_type].copy()
     df = df[df["mid"].notna()].copy()
+    # 倒挂报价过滤（审计 D-3）：与 multi_leg/scan_buckets 口径一致，
+    # 剔除 ask<bid 等不可成交的交叉报价（preprocessing 已打 invalid 标记）
+    df = df[df["quality_flag"] == "ok"].copy()
 
     df["dte"] = (df["expiry_ts"] - asof) / (1000 * 60 * 60 * 24)
     df = df[(df["dte"] <= max_dte) & (df["dte"] > 0)].copy()

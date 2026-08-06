@@ -6,6 +6,7 @@ interface Toast {
   id: number;
   message: string;
   type: ToastType;
+  fading?: boolean;   // 审计 Q-3：接口补全字段，去掉 as Toast 强转
 }
 
 interface ToastContextType {
@@ -32,7 +33,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts(prev => [...prev, { id, message, type }]);
 
     setTimeout(() => {
-      setToasts(prev => prev.map(t => t.id === id ? { ...t, fading: true } as Toast : t));
+      setToasts(prev => prev.map(t => t.id === id ? { ...t, fading: true } : t));
       setTimeout(() => {
         setToasts(prev => prev.filter(t => t.id !== id));
       }, 300);
@@ -44,7 +45,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div className="toast-container">
         {toasts.map(toast => (
-          <div key={toast.id} className={`toast ${toast.type}`}>
+          <div key={toast.id} className={`toast ${toast.type}${toast.fading ? ' fade-out' : ''}`}>
             {toast.message}
           </div>
         ))}

@@ -30,6 +30,20 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
+    # 运行环境："dev"（默认，保持零配置开箱即用）/"prod"。
+    # prod 下未配置 ADMIN_TOKEN 时管理端点一律 403（审计 SEC-1）；
+    # 公网部署必须 ENV=prod 并设置 ADMIN_TOKEN。
+    env: str = "dev"
+
+    # 受信反向代理白名单（IP 或 CIDR，审计 SEC-3/SEC-7）。
+    # 仅当请求对端命中该列表时才信任 X-Forwarded-For / X-Real-IP 头，
+    # 用于限流 key 与 geo 客户端 IP 解析；直连场景留空 [] 即不使用代理头。
+    trusted_proxies: List[str] = []
+
+    # 请求体大小上限（字节，审计 SEC-4）。纯 ASGI 中间件在 body 读入内存前
+    # 拦截，超过即返回 413。策略请求体很小，1MB 有充分余量。
+    max_body_bytes: int = 1048576
+
     etl_bases: List[str] = ["BTC", "ETH"]
 
     @property
@@ -64,8 +78,9 @@ class Settings(BaseSettings):
     etl_schedule: str = "08:05"
 
     # 手动 ETL 触发（POST /api/etl/run）的管理口令。
-    # 配置后该端点必须带 X-Admin-Token 头匹配才放行；留空则放行（仅适合本地
-    # 开发）。公网部署务必设置，否则任何访客都能触发 ETL 烧 Deribit API 配额。
+    # 配置后该端点必须带 X-Admin-Token 头匹配才放行；dev 环境留空放行（仅适合
+    # 本地开发）。prod（ENV=prod）下留空则管理端点一律 403——公网部署务必
+    # 设置，否则任何访客都能触发 ETL 烧 Deribit API 配额（审计 SEC-1）。
     admin_token: str = ""
 
     # Telegram Bot 推送（ETL 完成后自动推 top 策略 + 异常警报）。
@@ -79,6 +94,9 @@ class Settings(BaseSettings):
     # geo_enabled=False 时直接返回默认语言，不调外部 API。
     geo_enabled: bool = True
     geo_default_lang: str = "zh-CN"
+    # 注意：ip-api.com 免费版仅支持 HTTP（无 key）；HTTPS 需付费端点
+    # https://api.ip-api.com（带 key）。生产建议自建或付费 HTTPS 端点，
+    # 避免访客 IP 明文传输（审计 SEC-6）。
     geo_ipapi_url: str = "http://ip-api.com/json"
 
 

@@ -196,13 +196,14 @@ def get_vol_panel(
       term_structure: [{expiry_ts, expiry_date, dte, atm_iv, rr25, bf25}]
       dvol_history: [{ts, close}] 最近 90 天
     """
+    # 审计 E-2：数据缺失（无最新日期 / 无 SVI 曲面 / 无 IV 历史）统一 404，
+    # 而不是让 load_svi_surface 抛 FileNotFoundError 变成 500
     try:
         latest_date = get_latest_date()
+        svi_surface = load_svi_surface(latest_date, base)
+        iv_metrics = current_iv_metrics(base)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="无数据")
-
-    svi_surface = load_svi_surface(latest_date, base)
-    iv_metrics = current_iv_metrics(base)
 
     term_structure: List[Dict[str, Any]] = []
     for exp_ts in sorted(svi_surface.keys()):

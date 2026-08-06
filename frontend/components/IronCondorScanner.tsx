@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { IronCondorResult } from '../types/api';
@@ -17,7 +17,7 @@ function formatNumber(num: number, decimals: number = 2): string {
 }
 
 interface Props {
-  onDataUpdate?: (data: { asof_ts: number; spot_price?: number; dvol_index?: number; base?: 'BTC' | 'ETH' }) => void;
+  onDataUpdate?: (data: { asof_ts: number; spot_price?: number | null; dvol_index?: number; base?: 'BTC' | 'ETH' }) => void;
 }
 
 export default function IronCondorScanner({ onDataUpdate }: Props) {
@@ -151,9 +151,8 @@ export default function IronCondorScanner({ onDataUpdate }: Props) {
               </thead>
               <tbody>
                 {result.candidates.map((c, idx) => (
-                  <>
+                  <Fragment key={idx}>
                     <tr
-                      key={idx}
                       onClick={() => setExpandedRow(expandedRow === idx ? null : idx)}
                       style={{
                         background: expandedRow === idx ? '#f0f8ff' : idx % 2 === 0 ? '#fff' : '#fafafa',
@@ -190,7 +189,7 @@ export default function IronCondorScanner({ onDataUpdate }: Props) {
                       </td>
                     </tr>
                     {expandedRow === idx && (
-                      <tr key={`exp-${idx}`} style={{ background: '#f0f8ff' }}>
+                      <tr style={{ background: '#f0f8ff' }}>
                         <td colSpan={11}>
                           <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', padding: '8px 16px' }}>
                             <div>
@@ -239,7 +238,7 @@ export default function IronCondorScanner({ onDataUpdate }: Props) {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>

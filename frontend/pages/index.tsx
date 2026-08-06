@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { DatesResp, ExpiriesResp, ScanResp, OpinionResult } from '../types/api';
+import type { DatesResp, ExpiriesResp, ScanResp, OpinionResult, OpinionItem } from '../types/api';
 import ResultBucket from '../components/ResultBucket';
 import CSPScanner from '../components/CSPScanner';
 import CCScanner from '../components/CCScanner';
@@ -29,7 +29,7 @@ function formatNumber(num: number, decimals: number = 2): string {
   });
 }
 
-function OpinionResultDisplay({ result, spotPrice }: { result: OpinionResult; spotPrice: number }) {
+function OpinionResultDisplay({ result, spotPrice }: { result: OpinionResult; spotPrice: number | null }) {
   const { t } = useTranslation();
   const items = result.items || [];
   const view = result.view;
@@ -88,8 +88,10 @@ function OpinionResultDisplay({ result, spotPrice }: { result: OpinionResult; sp
             </tr>
           </thead>
           <tbody>
-            {items.map((s: any, idx: number) => {
-              const premiumUsd = Math.abs(s.premium) * spotPrice;
+            {items.map((s: OpinionItem, idx: number) => {
+              // 审计 Q-2：类型化为 OpinionItem（替代 any）；
+              // spot 缺失时权利金 USD 显示占位而非 $0.00
+              const premiumUsd = spotPrice != null && spotPrice > 0 ? Math.abs(s.premium) * spotPrice : null;
               // 后端 _calc_vertical_metrics 已统一 USD 净值口径：max_profit/max_loss 均为 USD
               const maxProfitUsd = s.max_profit;
               const maxLossUsd = s.max_loss;
@@ -98,7 +100,7 @@ function OpinionResultDisplay({ result, spotPrice }: { result: OpinionResult; sp
                   <td>{s.expiry_date}</td>
                   <td>{formatNumber(s.K1, 0)}</td>
                   <td>{formatNumber(s.K2, 0)}</td>
-                  <td>{s.premium.toFixed(4)} (${formatNumber(premiumUsd, 2)})</td>
+                  <td>{s.premium.toFixed(4)} {premiumUsd != null ? `($${formatNumber(premiumUsd, 2)})` : ''}</td>
                   <td>${formatNumber(maxProfitUsd, 2)}</td>
                   <td>${formatNumber(maxLossUsd, 2)}</td>
                   <td>{s.odds.toFixed(1)}</td>
@@ -160,7 +162,7 @@ export default function Home() {
 
   const [globalData, setGlobalData] = useState<{
     asof_ts?: number;
-    spot_price?: number;
+    spot_price?: number | null;
     dvol_index?: number;
     base?: 'BTC' | 'ETH';
   }>({});
@@ -179,6 +181,7 @@ export default function Home() {
     const fetchInitialData = async () => {
       try {
         const datesResp = await fetch(`${API_BASE}/meta/dates`, { signal: ctrl.signal });
+        if (!datesResp.ok) return;
         const datesData: DatesResp = await datesResp.json();
         const ds = datesData.dates || [];
         setDates(ds);
@@ -205,7 +208,9 @@ export default function Home() {
     };
     fetchInitialData();
     return () => ctrl.abort();
-  }, []);
+    // 审计 Q-5：base 在闭包中使用，必须加入依赖数组，否则持久化 base='ETH'
+    // 的用户首屏 banner 仍按 BTC 拉取元信息
+  }, [base]);
 
   useEffect(() => {
     if (!date || !base) return;
@@ -460,7 +465,7 @@ export default function Home() {
           {error && <p className="error-message">{error}</p>}
 
           {opinionResult && opinionResult.items && (
-            <OpinionResultDisplay result={opinionResult} spotPrice={opinionResult.spot_price || 0} />
+            <OpinionResultDisplay result={opinionResult} spotPrice={opinionResult.spot_price} />
           )}
         </>
       ) : (

@@ -32,7 +32,7 @@ Option Scanner 从 [Deribit](https://www.deribit.com) 公开 API 自动拉取每
 
 | 功能      | 端点                                       | 说明                                                                             |
 | ------- | ---------------------------------------- | ------------------------------------------------------------------------------ |
-| 到期日扫描  | `POST /api/spread/scan`                  | 按到期日扫描垂直价差（CALL/PUT × DEBIT/CREDIT）；统一 reward/risk 赔率（DEBIT=宽度÷净支出、CREDIT=净收入÷宽度）、流动性惩罚排序、`mid`/`conservative` 双计价模式、USD 净值口径最大盈亏 |
+| 到期日扫描  | `POST /api/spread/scan`                  | 按到期日扫描垂直价差（CALL/PUT × DEBIT/CREDIT）；统一 reward/risk 赔率（DEBIT=(宽度−净支出)÷净支出、CREDIT=净收入÷(宽度−净收入)）、流动性惩罚排序、`mid`/`conservative` 双计价模式、USD 净值口径最大盈亏 |
 | 观点策略   | `POST /api/spread/opinion`               | 基于目标价与方向观点（`up`/`down`/`not_up`/`not_down`）筛选最优价差；行权价传参顺序不影响盈亏平衡点与 PoP                                  |
 | 低吸收租   | `POST /api/strategy/csp`                 | 收权利金；若价格下跌，按折扣价买入标的。Delta、行权概率、APR、综合评分                                        |
 | 高抛收租   | `POST /api/strategy/cc`                  | 收权利金；若价格上涨，按溢价卖出标的。上涨空间、APR、综合评分                                              |
@@ -105,7 +105,7 @@ option-scanner/
 │   │   └── services/     # bs, svi, rnd, margin, scanner, single_leg, multi_leg,
 │   │                     # loader, vol_history, notify, preprocessing
 │   ├── scripts/          # etl_daily.py, etl_scheduler.py, backfill_dvol.py, cleanup_old_data.py
-│   └── tests/            # pytest 测试套件（82 个用例）
+│   └── tests/            # pytest 测试套件（103 个用例）
 ├── frontend/             # Next.js 静态导出界面（三语言）
 ├── ops/                  # 部署脚本、Caddy 示例
 ├── Dockerfile.combined   # 单容器镜像（前端构建 + 后端 venv）
@@ -216,6 +216,8 @@ bash ops/etl_docker.sh restore backups/data-XXXXXXXX.tar.gz  # 恢复
 
 | 变量                      | 说明                                                     | 默认值              |
 | ----------------------- | ------------------------------------------------------ | ---------------- |
+| `ENV`                   | 运行环境：`dev`（默认，开箱即用）/ `prod`。`prod` 下未配置 `ADMIN_TOKEN` 时管理端点一律 403 | `dev`           |
+| `TRUSTED_PROXIES`       | 受信反向代理 IP/CIDR 白名单（JSON 数组）。仅对端命中时才信任 `X-Forwarded-For`/`X-Real-IP`（限流与 geo 用） | `[]`             |
 | `PUBLIC_PORT`           | 对外端口（反代场景改为 `127.0.0.1:3116`）                           | `3116`           |
 | `CORS_ORIGINS`          | 跨域白名单 JSON 数组；禁止使用 `["*"]`                               | `[]`             |
 | `LOG_LEVEL`             | `DEBUG` / `INFO` / `WARNING` / `ERROR`（生产环境禁止 `DEBUG`）      | `INFO`           |
@@ -233,10 +235,11 @@ bash ops/etl_docker.sh restore backups/data-XXXXXXXX.tar.gz  # 恢复
 
 ### 生产部署检查清单
 
-1. **公网环境务必设置 `ADMIN_TOKEN`**——否则任何访客都能触发 ETL，消耗 Deribit API 配额。
+1. **公网环境务必设置 `ENV=prod` + `ADMIN_TOKEN`**——`prod` 下未配置 `ADMIN_TOKEN` 时管理端点一律 403；否则任何访客都能触发 ETL，消耗 Deribit API 配额。
 2. **生产保持 `API_DOCS_ENABLED=false`** 且 `LOG_LEVEL=INFO`（或更高）。
-3. **可选**：配置 Telegram 推送。
-4. **可选**：通过反向代理绑定域名（见下），并将 `PUBLIC_PORT` 设为 `127.0.0.1:3116` 以屏蔽 IP:端口直连。
+3. **设置 `TRUSTED_PROXIES`** 为反代 IP/CIDR，让限流与 geo 在反代后仍解析到真实客户端 IP。
+4. **可选**：配置 Telegram 推送。
+5. **可选**：通过反向代理绑定域名（见下），并将 `PUBLIC_PORT` 设为 `127.0.0.1:3116` 以屏蔽 IP:端口直连。
 
 ### 域名绑定与反向代理
 
@@ -278,7 +281,7 @@ docker compose up -d
 
 设置 `API_DOCS_ENABLED=true` 可启用交互式文档（`/docs`）。
 
-**API 约定**：`/api/meta/vol` 期限结构中的 IV（`atm_iv` / `rr25` / `bf25`）为小数（`0.45` 表示 45%）；垂直价差端点返回的 `max_profit` / `max_loss` 为 USD 净值；成对的 `min`/`max` 参数倒置（如 `dte_min` > `dte_max`）会被拒绝并返回 `422`。
+**API 约定**：`/api/meta/vol` 期限结构中的 IV（`atm_iv` / `rr25` / `bf25`）为小数（`0.45` 表示 45%）；垂直价差端点返回的 `max_profit` / `max_loss` 为 USD 净值；成对的 `min`/`max` 参数倒置（如 `dte_min` > `dte_max`）会被拒绝并返回 `422`；请求体超过 `MAX_BODY_BYTES`（默认 1 MiB）返回 `413`。
 
 ## 常见问题
 

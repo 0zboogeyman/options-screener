@@ -10,7 +10,6 @@
 """
 from __future__ import annotations
 
-import ipaddress
 import logging
 import threading
 import time
@@ -20,7 +19,7 @@ import httpx
 from fastapi import APIRouter, Request
 
 from ..core.config import settings
-from ..core.ratelimit import limiter
+from ..core.ratelimit import limiter, resolve_client_ip
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -61,34 +60,10 @@ def _key_lock(key: str) -> threading.Lock:
 
 
 def _client_ip(request: Request) -> str:
-    """优先级：X-Forwarded-For 首段 > X-Real-IP > request.client.host。
-
-    XFF/XRI 首段经 ipaddress.ip_address() 校验，非法值回退
-    request.client.host，防止伪造头注入垃圾串污染缓存键。
-    """
-
-    def _valid(ip: str) -> str:
-        ip = ip.strip()
-        if not ip:
-            return ""
-        try:
-            ipaddress.ip_address(ip)
-            return ip
-        except ValueError:
-            return ""
-
-    xff = request.headers.get("x-forwarded-for", "")
-    if xff:
-        first = xff.split(",")[0].strip()
-        valid = _valid(first)
-        if valid:
-            return valid
-    xri = request.headers.get("x-real-ip", "")
-    if xri:
-        valid = _valid(xri)
-        if valid:
-            return valid
-    return request.client.host if request.client else ""
+    """解析客户端 IP（审计 SEC-7）：仅当对端命中 settings.trusted_proxies
+    时才信任 XFF/X-Real-IP；直连场景一律取 request.client.host，
+    防止伪造代理头污染缓存键 / 驱动外部 API 配额滥用。"""
+    return resolve_client_ip(request)
 
 
 def _is_throttled() -> bool:

@@ -63,7 +63,8 @@ class TestVerticalMetrics:
         assert premium_usd == pytest.approx(3000.0, rel=1e-9)
         assert m["max_loss"] == pytest.approx(premium_usd, rel=1e-9)          # 净支出
         assert m["max_profit"] == pytest.approx(10000.0 - premium_usd, rel=1e-9)  # 宽度−净支出
-        assert m["odds"] == pytest.approx(10000.0 / premium_usd, rel=1e-9)    # 宽度/净支出
+        # 审计 A-1：odds = max_profit/max_loss = (width−P)/P（真实 reward/risk）
+        assert m["odds"] == pytest.approx((10000.0 - premium_usd) / premium_usd, rel=1e-9)
 
     def test_credit_odds_and_usd_net(self):
         m = scanner._calc_vertical_metrics(
@@ -74,7 +75,17 @@ class TestVerticalMetrics:
         assert premium_usd == pytest.approx(5000.0, rel=1e-9)
         assert m["max_profit"] == pytest.approx(premium_usd, rel=1e-9)        # 净收入
         assert m["max_loss"] == pytest.approx(10000.0 - premium_usd, rel=1e-9)   # 宽度−净收入
-        assert m["odds"] == pytest.approx(premium_usd / 10000.0, rel=1e-9)    # 净收入/宽度
+        # 审计 A-1：odds = max_profit/max_loss = P/(width−P)
+        assert m["odds"] == pytest.approx(premium_usd / (10000.0 - premium_usd), rel=1e-9)
+
+    def test_credit_max_loss_clamped_non_negative(self):
+        """审计 A-3：CREDIT 净值亏损钳制 ≥0，避免 credit>width 时负 max_loss。"""
+        m = scanner._calc_vertical_metrics(
+            "CALL", "CREDIT", 100000.0, 110000.0,
+            long_px=0.02, short_px=0.12, s=S, iv=IV, t_years=T,  # credit=0.10 → 10000=width
+        )
+        assert m["max_loss"] == 0.0
+        assert m["odds"] == float("inf")
 
     def test_k_order_invariant(self):
         """行权价传参顺序无关：低K/高K 任意顺序结果一致（k_lo/k_hi 归一化）。"""
@@ -95,6 +106,31 @@ class TestVerticalMetrics:
 # ---------------------------------------------------------------------------
 # #7 BS 尾部概率：深虚值不归零
 # ---------------------------------------------------------------------------
+
+
+class TestMarginNanGuard:
+    """审计 A-2：margin 模块显式 isfinite 校验，NaN 输入不再产出假数值。"""
+
+    def test_im_short_call_nan_returns_nan(self):
+        from app.services import margin
+
+        assert math.isnan(margin.im_short_call(float("nan"), 100000.0, 0.02))
+        assert math.isnan(margin.im_short_call(100000.0, 100000.0, float("nan")))
+        # 正常输入不受影响：ATM 裸卖 IM = max(0.15−0, 0.10) + 0.02 = 0.17
+        assert margin.im_short_call(100000.0, 100000.0, 0.02) == pytest.approx(0.17)
+
+    def test_vertical_credit_nan_propagates(self):
+        from app.services import margin
+
+        res = margin.margin_vertical_credit(
+            float("nan"), 100000.0, 90000.0, 0.06, 0.02, "PUT",
+        )
+        assert math.isnan(res["max_loss_usd"])
+        # 正常输入数值不变（回归）
+        ok = margin.margin_vertical_credit(
+            100000.0, 100000.0, 90000.0, 0.06, 0.02, "PUT",
+        )
+        assert ok["max_loss_usd"] == pytest.approx(10000.0 - 4000.0, rel=1e-9)
 
 
 class TestBsTailProbability:

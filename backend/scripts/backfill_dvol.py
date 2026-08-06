@@ -24,23 +24,25 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.services.vol_history import append_dvol_rows
+from scripts.etl_daily import _retryable
 
 setup_logging(settings.log_level)
 logger = logging.getLogger(__name__)
 
 DERIBIT: str = settings.deribit_api_url
 PAGE_LIMIT_DAYS = 90  # 单页跨度保守取 90 天，配合 continuation 循环
+MAX_PAGES = 1000      # 翻页上限，防 API 异常导致死循环（审计 D-5）
 
 
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=15),
-    retry=retry_if_exception_type((httpx.HTTPError, httpx.TimeoutException)),
+    retry=retry_if_exception(_retryable),
     reraise=True,
 )
 async def fetch_dvol_page(
@@ -66,7 +68,9 @@ async def backfill_base(client: httpx.AsyncClient, base: str, days: int) -> int:
 
     rows: List[Dict] = []
     cursor = start_ms
-    while cursor < end_ms:
+    page_count = 0
+    while cursor < end_ms and page_count < MAX_PAGES:
+        page_count += 1
         page_end = min(cursor + PAGE_LIMIT_DAYS * 24 * 3600 * 1000, end_ms)
         result = await fetch_dvol_page(client, base, cursor, page_end)
         data = result.get("data", [])
@@ -81,10 +85,20 @@ async def backfill_base(client: httpx.AsyncClient, base: str, days: int) -> int:
                 "close": float(close),
             })
         continuation = result.get("continuation")
+        # 进度守卫：continuation 必须严格前进，否则回退到按页长推进，
+        # 避免 API 异常导致死循环（审计 D-5）
         if continuation:
-            cursor = int(continuation)
+            try:
+                next_cursor = int(continuation)
+            except (TypeError, ValueError):
+                next_cursor = -1
+            cursor = next_cursor if next_cursor > cursor else page_end
         else:
             cursor = page_end
+
+    if page_count >= MAX_PAGES:
+        logger.error("DVOL backfill %s exceeded page limit %d, aborting", base, MAX_PAGES)
+        return 0
 
     if not rows:
         logger.warning("No DVOL data for %s", base)

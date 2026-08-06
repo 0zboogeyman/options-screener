@@ -14,7 +14,7 @@ function formatNumber(num: number, decimals: number = 2): string {
 }
 
 interface CCScannerProps {
-  onDataUpdate?: (data: { asof_ts: number; spot_price?: number; dvol_index?: number; base?: 'BTC' | 'ETH' }) => void;
+  onDataUpdate?: (data: { asof_ts: number; spot_price?: number | null; dvol_index?: number; base?: 'BTC' | 'ETH' }) => void;
 }
 
 export default function CCScanner({ onDataUpdate }: CCScannerProps) {

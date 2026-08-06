@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { CalendarResult } from '../types/api';
@@ -16,7 +16,7 @@ function formatNumber(num: number, decimals: number = 2): string {
 }
 
 interface Props {
-  onDataUpdate?: (data: { asof_ts: number; spot_price?: number; dvol_index?: number; base?: 'BTC' | 'ETH' }) => void;
+  onDataUpdate?: (data: { asof_ts: number; spot_price?: number | null; dvol_index?: number; base?: 'BTC' | 'ETH' }) => void;
 }
 
 export default function CalendarScanner({ onDataUpdate }: Props) {
@@ -147,9 +147,8 @@ export default function CalendarScanner({ onDataUpdate }: Props) {
               </thead>
               <tbody>
                 {result.candidates.map((c, idx) => (
-                  <>
+                  <Fragment key={idx}>
                     <tr
-                      key={idx}
                       onClick={() => setExpandedRow(expandedRow === idx ? null : idx)}
                       style={{
                         background: expandedRow === idx ? '#f0f8ff' : idx % 2 === 0 ? '#fff' : '#fafafa',
@@ -233,7 +232,7 @@ export default function CalendarScanner({ onDataUpdate }: Props) {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>

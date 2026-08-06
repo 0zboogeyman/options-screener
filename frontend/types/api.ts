@@ -59,7 +59,7 @@ export interface CSPResult {
   asof_date: string;
   asof_ts: number;
   base: string;
-  spot_price: number;
+  spot_price: number | null;   // 后端 meta.spot_price 可为 null（审计 Q-1）
   dvol_index?: number;
   strategy: string;
   filters: Record<string, unknown>;
@@ -86,7 +86,7 @@ export interface CCResult {
   asof_date: string;
   asof_ts: number;
   base: string;
-  spot_price: number;
+  spot_price: number | null;   // 后端 meta.spot_price 可为 null（审计 Q-1）
   dvol_index?: number;
   strategy: string;
   filters: Record<string, unknown>;
@@ -170,7 +170,7 @@ export interface IronCondorResult {
   asof_date: string;
   asof_ts: number;
   base: string;
-  spot_price: number;
+  spot_price: number | null;   // 后端 meta.spot_price 可为 null（审计 Q-1）
   dvol_index?: number;
   strategy: string;
   ivp?: number | null;
@@ -222,7 +222,7 @@ export interface StrangleResult {
   asof_date: string;
   asof_ts: number;
   base: string;
-  spot_price: number;
+  spot_price: number | null;   // 后端 meta.spot_price 可为 null（审计 Q-1）
   dvol_index?: number;
   strategy: string;
   ivp?: number | null;
@@ -265,7 +265,7 @@ export interface CalendarResult {
   asof_date: string;
   asof_ts: number;
   base: string;
-  spot_price: number;
+  spot_price: number | null;   // 后端 meta.spot_price 可为 null（审计 Q-1）
   dvol_index?: number;
   strategy: string;
   ivp?: number | null;

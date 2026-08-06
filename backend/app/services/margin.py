@@ -18,6 +18,7 @@
 """
 from __future__ import annotations
 
+import math
 from typing import Dict, Optional
 
 # 官方公式系数（Deribit 调整时改这里）
@@ -26,23 +27,29 @@ IM_FLOOR = 0.10          # OTM 裸卖保证金率下限
 MM_LEVEL = 0.075         # 维持保证金率
 
 
+def _finite(*values: float) -> bool:
+    """全部参数均为有限浮点。审计 A-2：显式 isfinite 校验，避免 Python
+    max(nan, x) 隐式返回 x 而把 NaN 静默"修成"有效数字。"""
+    return all(math.isfinite(v) for v in values)
+
+
 def mm_short_call(mark: float) -> float:
     """裸卖 Call 维持保证金（币种）。"""
-    if mark < 0:
+    if not _finite(mark) or mark < 0:
         return float("nan")
     return MM_LEVEL + mark
 
 
 def mm_short_put(mark: float) -> float:
     """裸卖 Put 维持保证金（币种）。"""
-    if mark < 0:
+    if not _finite(mark) or mark < 0:
         return float("nan")
     return max(MM_LEVEL, MM_LEVEL * mark) + mark
 
 
 def im_short_call(s: float, k: float, mark: float) -> float:
     """裸卖 Call 初始保证金（币种）：max(0.15 − OTM 幅度, 0.10) + mark。"""
-    if s <= 0 or k <= 0 or mark < 0:
+    if not _finite(s, k, mark) or s <= 0 or k <= 0 or mark < 0:
         return float("nan")
     otm_pct = max((k - s) / s, 0.0)
     return max(IM_LEVEL - otm_pct, IM_FLOOR) + mark
@@ -50,7 +57,7 @@ def im_short_call(s: float, k: float, mark: float) -> float:
 
 def im_short_put(s: float, k: float, mark: float) -> float:
     """裸卖 Put 初始保证金（币种）：max(同 Call 结构, MM_put)。"""
-    if s <= 0 or k <= 0 or mark < 0:
+    if not _finite(s, k, mark) or s <= 0 or k <= 0 or mark < 0:
         return float("nan")
     otm_pct = max((s - k) / s, 0.0)
     im = max(IM_LEVEL - otm_pct, IM_FLOOR) + mark
@@ -73,7 +80,11 @@ def margin_vertical_credit(
     width_usd = abs(short_k - long_k)
     credit = short_mark - long_mark
     credit_usd = credit * s
-    max_loss_usd = max(width_usd - credit_usd, 0.0)
+    # 审计 A-2：credit/s 含 NaN 时显式传播 NaN，避免 max(nan, 0.0)=0.0 假值
+    if not _finite(credit, s):
+        max_loss_usd = float("nan")
+    else:
+        max_loss_usd = max(width_usd - credit_usd, 0.0)
     if kind.upper() == "CALL":
         im = im_short_call(s, short_k, short_mark)
     else:
@@ -105,7 +116,11 @@ def margin_iron_condor(
     credit_usd = credit * s
     put_width_usd = abs(put_short_k - put_long_k)
     call_width_usd = abs(call_short_k - call_long_k)
-    max_loss_usd = max(max(put_width_usd, call_width_usd) - credit_usd, 0.0)
+    # 审计 A-2：credit/s 含 NaN 时显式传播 NaN，避免 max(nan, 0.0)=0.0 假值
+    if not _finite(credit, s):
+        max_loss_usd = float("nan")
+    else:
+        max_loss_usd = max(max(put_width_usd, call_width_usd) - credit_usd, 0.0)
     im = im_short_put(s, put_short_k, put_short_mark) + im_short_call(s, call_short_k, call_short_mark)
     return {
         "credit": credit,

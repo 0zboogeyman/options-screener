@@ -101,10 +101,15 @@ export function portfolioDeltaAt(legs: PayoffLeg[], sT: number, offsetYears: num
 /** 组合 P&L 曲线：offsetYears 为估值时点（距现在的年数） */
 export function payoffCurve(
   legs: PayoffLeg[],
-  spot: number,
+  spot: number | null,
   offsetYears: number,
   n: number = 160,
 ): { points: PayoffPoint[]; maxProfit: number; maxLoss: number } {
+  // 审计 Q-1：spot 无效（null/0）时返回空曲线，避免 Math.min(...strikes, null)
+  // 把 null 强转 0 产生错误曲线
+  if (spot == null || !(spot > 0) || legs.length === 0) {
+    return { points: [], maxProfit: 0, maxLoss: 0 };
+  }
   const strikes = legs.map(l => l.strike);
   const lo = Math.max(Math.min(...strikes, spot) * 0.8, 1e-6);
   const hi = Math.max(...strikes, spot) * 1.2;

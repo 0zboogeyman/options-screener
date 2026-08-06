@@ -36,10 +36,19 @@ export default function EtlRefreshButton({ onRefreshed }: Props) {
     setToken(resolveAdminToken());
   }, []);
 
-  // 轮询运行状态直到结束
+  // 轮询运行状态直到结束（审计 P3-8：加最大轮询次数，防 ETL 卡死无限轮询）
   useEffect(() => {
     if (!running || !token) return;
+    let polls = 0;
+    const MAX_POLLS = 60;   // 60 × 3s = 3 分钟上限
     const timer = setInterval(async () => {
+      polls += 1;
+      if (polls > MAX_POLLS) {
+        clearInterval(timer);
+        setRunning(false);
+        showToast(t('etl.timeout'), 'error');
+        return;
+      }
       try {
         const resp = await fetch(`${API_BASE}/etl/status`, {
           headers: { 'X-Admin-Token': token },

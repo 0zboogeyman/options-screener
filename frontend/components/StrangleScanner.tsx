@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { StrangleResult } from '../types/api';
@@ -17,7 +17,7 @@ function formatNumber(num: number, decimals: number = 2): string {
 }
 
 interface Props {
-  onDataUpdate?: (data: { asof_ts: number; spot_price?: number; dvol_index?: number; base?: 'BTC' | 'ETH' }) => void;
+  onDataUpdate?: (data: { asof_ts: number; spot_price?: number | null; dvol_index?: number; base?: 'BTC' | 'ETH' }) => void;
 }
 
 export default function StrangleScanner({ onDataUpdate }: Props) {
@@ -163,9 +163,8 @@ export default function StrangleScanner({ onDataUpdate }: Props) {
                   </thead>
                   <tbody>
                     {result.long.map((c, idx) => (
-                      <>
+                      <Fragment key={`l-${idx}`}>
                         <tr
-                          key={`l-${idx}`}
                           onClick={() => setExpandedRow(expandedRow === `l-${idx}` ? null : `l-${idx}`)}
                           style={{
                             background: expandedRow === `l-${idx}` ? '#f0f8ff' : idx % 2 === 0 ? '#fff' : '#fafafa',
@@ -238,7 +237,7 @@ export default function StrangleScanner({ onDataUpdate }: Props) {
                             </td>
                           </tr>
                         )}
-                      </>
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -275,9 +274,8 @@ export default function StrangleScanner({ onDataUpdate }: Props) {
                   </thead>
                   <tbody>
                     {result.short.map((c, idx) => (
-                      <>
+                      <Fragment key={`s-${idx}`}>
                         <tr
-                          key={`s-${idx}`}
                           onClick={() => setExpandedRow(expandedRow === `s-${idx}` ? null : `s-${idx}`)}
                           style={{
                             background: expandedRow === `s-${idx}` ? '#f0f8ff' : idx % 2 === 0 ? '#fff' : '#fafafa',
@@ -361,7 +359,7 @@ export default function StrangleScanner({ onDataUpdate }: Props) {
                             </td>
                           </tr>
                         )}
-                      </>
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -370,7 +368,6 @@ export default function StrangleScanner({ onDataUpdate }: Props) {
           )}
         </div>
       )}
-
       {result && result.long.length === 0 && result.short.length === 0 && (
         <div className="no-results">{t('common.noResults')}</div>
       )}
